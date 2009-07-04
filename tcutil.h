@@ -3668,6 +3668,7 @@ enum {                                   /* enumeration for error codes */
 enum {                                   /* enumeration for database type */
   TCDBTHASH,                             /* hash table */
   TCDBTBTREE,                            /* B+ tree */
+  TCDBTDSAT,                             /* Dynamic spatial approximation tree */
   TCDBTFIXED,                            /* fixed-length */
   TCDBTTABLE                             /* table */
 };

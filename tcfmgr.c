@@ -508,6 +508,7 @@ static int procinform(const char *path, int omode){
   switch(tcfdbtype(fdb)){
   case TCDBTHASH: type = "hash"; break;
   case TCDBTBTREE: type = "btree"; break;
+  case TCDBTDSAT: type = "dsat"; break;
   case TCDBTFIXED: type = "fixed"; break;
   case TCDBTTABLE: type = "table"; break;
   }
