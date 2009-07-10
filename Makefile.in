@@ -744,6 +744,9 @@ tcamgr : tcamgr.o $(LIBRARYFILES)
 tcawmgr.cgi : tcawmgr.o $(LIBRARYFILES)
 	$(LDENV) $(CC) $(CFLAGS) -o $@ $< $(LDFLAGS) $(CMDLDFLAGS) -ltokyocabinet $(LIBS)
 
+tcdtest : tcdtest.o $(LIBRARYFILES)
+	$(LDENV) $(CC) $(CFLAGS) -o $@ $< $(LDFLAGS) $(CMDLDFLAGS) -ltokyocabinet $(LIBS)
+
 
 myconf.o : myconf.h
 
@@ -772,10 +775,14 @@ tcttest.o tctmttest.o tctmgr.o : myconf.h tcutil.h tchdb.h tcbdb.h tctdb.h
 tcatest.o tcamgr.o tcawmgr.o : myconf.h tcutil.h tchdb.h tcbdb.h tcfdb.h tctdb.h tcadb.h
 
 
-tokyocabinet_all.c : myconf.c tcutil.c md5.c tchdb.c tcbdb.c tcfdb.c tctdb.c tcadb.c
-	cat myconf.c tcutil.c md5.c tchdb.c tcbdb.c tcfdb.c tctdb.c tcadb.c > $@
+tcddb.o : myconf.h tcutil.h tchdb.h tcddb.h
 
-tokyocabinet_all.o : myconf.h tcutil.h tchdb.h tcbdb.h tcfdb.h tctdb.h tcadb.h
+tcdtest.o : myconf.h tcutil.h tchdb.h tcddb.h
+
+tokyocabinet_all.c : myconf.c tcutil.c md5.c tchdb.c tcbdb.c tcfdb.c tctdb.c tcadb.c tcddb.c
+	cat myconf.c tcutil.c md5.c tchdb.c tcbdb.c tcfdb.c tctdb.c tcadb.c tcddb.c > $@
+
+tokyocabinet_all.o : myconf.h tcutil.h tchdb.h tcbdb.h tcfdb.h tctdb.h tcadb.h tcddb.h
 
 
 
