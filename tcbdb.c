@@ -3057,6 +3057,7 @@ static bool tcbdbcloseimpl(TCBDB *bdb){
    `vsiz' specifies the size of the region of the value.
    `dmode' specifies behavior when the key overlaps.
    If successful, the return value is true, else, it is false. */
+
 static bool tcbdbputimpl(TCBDB *bdb, const void *kbuf, int ksiz, const void *vbuf, int vsiz,
                          int dmode){
   assert(bdb && kbuf && ksiz >= 0);

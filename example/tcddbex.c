@@ -21,32 +21,36 @@ int main(int argc, char **argv){
         return 0;
     }
 
-
+	printf("11\n");
     tcddbput2(ddb,"11","x1");
+	printf("A1\n");
     tcddbput2(ddb,"A1","yA");
+	printf("71\n");
     tcddbput2(ddb,"71","z7");
+	printf("91\n");
     tcddbput2(ddb,"91","l9");
     tcddbput2(ddb,"31","m3");
     tcddbput2(ddb,"41","n4");
+	printf("OK\n");
 
-
-    char *x = tcddbsearch(ddb,"11",2,10);
+    char *x = tcddbsearch2(ddb,"11",10);
+	if (x != NULL)
+	    printf("%s\n",x);	
+	else printf("%s\n","NULL");
+    x = tcddbsearch2(ddb,"A1",10);
     printf("%s\n",x);
-    x = tcddbsearch(ddb,"A1",2,10);
+    x = tcddbsearch2(ddb,"71",10);
     printf("%s\n",x);
-    x = tcddbsearch(ddb,"71",2,10);
+    x = tcddbsearch2(ddb,"91",10);
     printf("%s\n",x);
-    x = tcddbsearch(ddb,"91",2,10);
+    x = tcddbsearch2(ddb,"31",10);
     printf("%s\n",x);
-    x = tcddbsearch(ddb,"31",2,10);
-    printf("%s\n",x);
-    x = tcddbsearch(ddb,"41",2,10);
+    x = tcddbsearch2(ddb,"41",10);
     printf("%s\n",x);
 	tcddbclose(ddb);
-	return 1;
 
     printf("##### Similarity search : \n");
-    x = tcddbsearch(ddb,"5",1,2);
+    x = tcddbsearch2(ddb,"92",1);
 	if (x!= NULL)
 	{
 	    printf("%s\n",x);				

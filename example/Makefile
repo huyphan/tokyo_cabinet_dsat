@@ -11,11 +11,11 @@
 SHELL = /bin/sh
 
 # Targets
-MYBINS = tcutilex tchdbex tcbdbex tcfdbex tctdbex tcadbex tctchat.cgi tctsearch.cgi
+MYBINS = tcutilex tchdbex tcbdbex tcddbex tcfdbex tctdbex tcadbex tctchat.cgi tctsearch.cgi
 
 # Building binaries
 CC = gcc
-CFLAGS = -ansi -Wall -pedantic -I. -I..
+CFLAGS = -g -ansi -Wall -pedantic -I. -I..
 C99FLAGS = -std=c99 -Wall -pedantic -I. -I..
 LDFLAGS =
 LIBS = -L. -L.. -ltokyocabinet -lz -lbz2 -lpthread -lm -lc
@@ -70,6 +70,9 @@ tchdbex : tchdbex.o
 
 
 tcbdbex : tcbdbex.o
+	$(LDENV) $(CC) $(CFLAGS) -o $@ $< $(LDFLAGS) $(LIBS)
+
+tcddbex : tcddbex.o
 	$(LDENV) $(CC) $(CFLAGS) -o $@ $< $(LDFLAGS) $(LIBS)
 
 

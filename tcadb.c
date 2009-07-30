@@ -118,7 +118,8 @@ bool tcadbopen(TCADB *adb, const char *name){
   int64_t limsiz = -1;
   TCLIST *idxs = NULL;
   int ln = TCLISTNUM(elems);
-  for(int i = 0; i < ln; i++){
+  int i;
+  for(i = 0; i < ln; i++){
     const char *elem = TCLISTVALPTR(elems, i);
     char *pv = strchr(elem, '=');
     if(!pv) continue;
@@ -1067,7 +1068,8 @@ bool tcadboptimize(TCADB *adb, const char *params){
   int32_t width = -1;
   int64_t limsiz = -1;
   int ln = TCLISTNUM(elems);
-  for(int i = 0; i < ln; i++){
+  int i;
+  for(i=0; i < ln; i++){
     const char *elem = TCLISTVALPTR(elems, i);
     char *pv = strchr(elem, '=');
     if(!pv) continue;
