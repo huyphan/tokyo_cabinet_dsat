@@ -20,6 +20,7 @@
 #include "tcfdb.h"
 #include "tctdb.h"
 #include "tcadb.h"
+#include "tcddb.h"
 #include "myconf.h"
 
 typedef struct {                         // type of structure for mapper to B+ tree database
@@ -304,6 +305,38 @@ bool tcadbopen(TCADB *adb, const char *name){
     }
     adb->tdb = tdb;
     adb->omode = ADBOTDB;
+  } else if(tcstribwm(path, ".tcd") || tcstribwm(path, ".ddb")){
+      TCDDB *ddb = tcddbnew();
+      if(dbgfd >= 0) tcddbsetdbgfd(ddb, dbgfd);
+      tcddbsetmutex(ddb);
+      int opts = 0;
+/*
+      if(tlmode) opts |= BDBTLARGE;
+      if(tdmode) opts |= BDBTDEFLATE;
+      if(tbmode) opts |= BDBTBZIP;
+      if(ttmode) opts |= BDBTTCBS;
+      tcbdbtune(bdb, lmemb, nmemb, bnum, apow, fpow, opts);
+
+      tcbdbsetcache(bdb, lcnum, ncnum);
+
+      if(capnum > 0) tcbdbsetcapnum(bdb, capnum);
+*/
+      if(xmsiz >= 0) tcddbsetxmsiz(ddb, xmsiz);
+      if(dfunit >= 0) tcddbsetdfunit(ddb, dfunit);
+
+      int omode = owmode ? DDBOWRITER : DDBOREADER;
+      if(ocmode) omode |= DDBOCREAT;
+      if(otmode) omode |= DDBOTRUNC;
+      if(onlmode) omode |= DDBONOLCK;
+      if(onbmode) omode |= DDBOLCKNB;
+      if(!tcddbopen(ddb, path, omode)){
+        tcddbdel(ddb);
+        if(idxs) tclistdel(idxs);
+        TCFREE(path);
+        return false;
+      }
+      adb->ddb = ddb;
+      adb->omode = ADBOBDB;
   }
   if(idxs) tclistdel(idxs);
   TCFREE(path);
@@ -421,6 +454,10 @@ bool tcadbput(TCADB *adb, const void *kbuf, int ksiz, const void *vbuf, int vsiz
       err = true;
     }
     break;
+  case ADBODDB:
+      if(!tcddbput(adb->ddb, kbuf, ksiz, vbuf, vsiz)) err = true;
+          break;
+    break;
   default:
     err = true;
     break;
@@ -496,6 +533,9 @@ bool tcadbputkeep(TCADB *adb, const void *kbuf, int ksiz, const void *vbuf, int 
     } else {
       err = true;
     }
+    break;
+  case ADBODDB:
+    if(!tcddbput(adb->ddb, kbuf, ksiz, vbuf, vsiz)) err = true;
     break;
   default:
     err = true;
@@ -576,13 +616,11 @@ bool tcadbputcat(TCADB *adb, const void *kbuf, int ksiz, const void *vbuf, int v
   return !err;
 }
 
-
 /* Concatenate a string value at the end of the existing record in an abstract database object. */
 bool tcadbputcat2(TCADB *adb, const char *kstr, const char *vstr){
   assert(adb && kstr && vstr);
   return tcadbputcat(adb, kstr, strlen(kstr), vstr, strlen(vstr));
 }
-
 
 /* Remove a record of an abstract database object. */
 bool tcadbout(TCADB *adb, const void *kbuf, int ksiz){
@@ -662,6 +700,9 @@ void *tcadbget(TCADB *adb, const void *kbuf, int ksiz, int *sp){
     } else {
       rv = NULL;
     }
+    break;
+  case ADBODDB:
+    rv = tcddbget(adb->bdb, kbuf, ksiz, sp);
     break;
   default:
     rv = NULL;

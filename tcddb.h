@@ -96,7 +96,7 @@ bool tcddbopen(TCDDB *ddb, const char *path, int omode);
 bool tcddbput(TCDDB *ddb, const void *kbuf, int ksiz, const void *vbuf, int vsiz);
 
 /* Store a string record into a DSA tree database object. */
-bool tcbdbput2(TCDDB *ddb, const char *kstr, const char *vstr);
+bool tcddbput2(TCDDB *ddb, const char *kstr, const char *vstr);
 
 /* Search for a record in a DSA tree database object. */
 void *tcddbsearch(TCDDB *ddb, const void *kbuf, int ksiz, int64_t r);
@@ -105,6 +105,40 @@ void *tcddbsearch2(TCDDB *ddb, const char *kbuf, int64_t r);
 
 /* Close a DSA tree database object. */
 bool tcddbclose(TCDDB *ddb);
+
+
+
+
+
+/*************************************************************************************************
+ * features for experts
+ *************************************************************************************************/
+
+/* Load a node from the internal database.
+ `ddb' specifies the DSA tree database object.
+ `id' specifies the ID number of the node.
+ The return value is the node object or `NULL' on failure.
+ */
+static const void *tcddbget(TCDDB *ddb, const DDBCORD *kbuf, uint64_t ksiz);
+
+
+/* Set the file descriptor for debugging output. */
+void tcddbsetdbgfd(TCDDB *ddb, int fd);
+
+/* Get the file descriptor for debugging output. */
+int tcddbdbgfd(TCDDB *ddb);
+
+/* Set mutual exclusion control of a DSA tree database object for threading. */
+bool tcddbsetmutex(TCDDB *ddb);
+
+/* Set the size of the extra mapped memory of a B+ tree database object. */
+bool tcddbsetxmsiz(TCDDB *ddb, int64_t xmsiz);
+
+/* Set the unit step number of auto defragmentation of a B+ tree database object. */
+bool tcddbsetdfunit(TCDDB *ddb, int32_t dfunit);
+
+/* Delete a DSA tree database object. */
+void tcddbdel(TCDDB *ddb);
 
 __TCBDB_CLINKAGEEND
 #endif                                   /* duplication check */
