@@ -15,11 +15,11 @@ MYLIBREV=19
 MYFORMATVER="1.0"
 
 # Targets
-MYHEADERFILES="tcutil.h tchdb.h tcbdb.h tcfdb.h tctdb.h tcadb.h tcddb.h"
+MYHEADERFILES="tcutil.h tchdb.h tcbdb.h tcfdb.h tctdb.h tcadb.h tcdsadb.h"
 MYLIBRARYFILES="libtokyocabinet.a"
-MYLIBOBJFILES="tcutil.o tchdb.o tcbdb.o tcfdb.o tctdb.o tcadb.o tcddb.o myconf.o md5.o"
+MYLIBOBJFILES="tcutil.o tchdb.o tcbdb.o tcfdb.o tctdb.o tcadb.o tcdsadb.o myconf.o md5.o"
 MYCOMMANDFILES="tcutest tcumttest tcucodec tchtest tchmttest tchmgr"
-MYCOMMANDFILES="$MYCOMMANDFILES tcbtest tcbmttest tcbmgr tcftest tcfmttest tcfmgr tcdtest"
+MYCOMMANDFILES="$MYCOMMANDFILES tcbtest tcbmttest tcbmgr tcftest tcfmttest tcfmgr tcdsatest"
 MYCOMMANDFILES="$MYCOMMANDFILES tcttest tctmttest tctmgr tcatest tcamgr"
 MYCGIFILES="tcawmgr.cgi"
 MYMAN1FILES="tcutest.1 tcumttest.1 tcucodec.1 tchtest.1 tchmttest.1 tchmgr.1"

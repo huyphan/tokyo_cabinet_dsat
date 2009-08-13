@@ -20,7 +20,7 @@
 #include "tcfdb.h"
 #include "tctdb.h"
 #include "tcadb.h"
-#include "tcddb.h"
+#include "tcdsadb.h"
 #include "myconf.h"
 
 typedef struct {                         // type of structure for mapper to B+ tree database
@@ -115,8 +115,10 @@ bool tcadbopen(TCADB *adb, const char *name){
   int32_t nmemb = -1;
   int32_t lcnum = -1;
   int32_t ncnum = -1;
+  int32_t pcnum = -1;
   int32_t width = -1;
   int64_t limsiz = -1;
+  uint8_t dimnum = 0;
   TCLIST *idxs = NULL;
   int ln = TCLISTNUM(elems);
   int i;
@@ -166,6 +168,10 @@ bool tcadbopen(TCADB *adb, const char *name){
       width = tcatoix(pv);
     } else if(!tcstricmp(elem, "limsiz")){
       limsiz = tcatoix(pv);
+    } else if(!tcstricmp(elem, "dimnum")){
+        dimnum = tcatoix(pv);
+    } else if(!tcstricmp(elem, "pcnum")){
+        pcnum = tcatoix(pv);
     } else if(!tcstricmp(elem, "idx")){
       if(!idxs) idxs = tclistnew();
       TCLISTPUSH(idxs, pv, strlen(pv));
@@ -305,38 +311,40 @@ bool tcadbopen(TCADB *adb, const char *name){
     }
     adb->tdb = tdb;
     adb->omode = ADBOTDB;
-  } else if(tcstribwm(path, ".tcd") || tcstribwm(path, ".ddb")){
-      TCDDB *ddb = tcddbnew();
-      if(dbgfd >= 0) tcddbsetdbgfd(ddb, dbgfd);
-      tcddbsetmutex(ddb);
+  } else if(tcstribwm(path, ".tcd") || tcstribwm(path, ".dsadb")){
+      TCDSADB *dsadb = tcdsadbnew();
+      if(dbgfd >= 0) tcdsadbsetdbgfd(dsadb, dbgfd);
+      tcdsadbsetmutex(dsadb);
       int opts = 0;
-/*
+
       if(tlmode) opts |= BDBTLARGE;
       if(tdmode) opts |= BDBTDEFLATE;
       if(tbmode) opts |= BDBTBZIP;
       if(ttmode) opts |= BDBTTCBS;
-      tcbdbtune(bdb, lmemb, nmemb, bnum, apow, fpow, opts);
 
-      tcbdbsetcache(bdb, lcnum, ncnum);
+      tcdsadbtune(dsadb, dimnum, bnum, apow, fpow, opts);
 
+      tcdsadbsetcache(dsadb, pcnum, ncnum);
+/*
       if(capnum > 0) tcbdbsetcapnum(bdb, capnum);
-*/
-      if(xmsiz >= 0) tcddbsetxmsiz(ddb, xmsiz);
-      if(dfunit >= 0) tcddbsetdfunit(ddb, dfunit);
+      */
+      if(xmsiz >= 0) tcdsadbsetxmsiz(dsadb, xmsiz);
+      if(dfunit >= 0) tcdsadbsetdfunit(dsadb, dfunit);
 
-      int omode = owmode ? DDBOWRITER : DDBOREADER;
-      if(ocmode) omode |= DDBOCREAT;
-      if(otmode) omode |= DDBOTRUNC;
-      if(onlmode) omode |= DDBONOLCK;
-      if(onbmode) omode |= DDBOLCKNB;
-      if(!tcddbopen(ddb, path, omode)){
-        tcddbdel(ddb);
+      int omode = owmode ? DSADBOWRITER : DSADBOREADER;
+      if(ocmode) omode |= DSADBOCREAT;
+      if(otmode) omode |= DSADBOTRUNC;
+      if(onlmode) omode |= DSADBONOLCK;
+      if(onbmode) omode |= DSADBOLCKNB;
+
+      if(!tcdsadbopen(dsadb, path, omode)){
+        tcdsadbdel(dsadb);
         if(idxs) tclistdel(idxs);
         TCFREE(path);
         return false;
       }
-      adb->ddb = ddb;
-      adb->omode = ADBOBDB;
+      adb->dsadb = dsadb;
+      adb->omode = ADBODSADB;
   }
   if(idxs) tclistdel(idxs);
   TCFREE(path);
@@ -387,6 +395,11 @@ bool tcadbclose(TCADB *adb){
     } else {
       err = true;
     }
+    break;
+  case ADBODSADB:
+    if(!tcdsadbclose(adb->dsadb)) err = true;
+    tcdsadbdel(adb->dsadb);
+    adb->dsadb = NULL;
     break;
   default:
     err = true;
@@ -454,8 +467,8 @@ bool tcadbput(TCADB *adb, const void *kbuf, int ksiz, const void *vbuf, int vsiz
       err = true;
     }
     break;
-  case ADBODDB:
-      if(!tcddbput(adb->ddb, kbuf, ksiz, vbuf, vsiz)) err = true;
+  case ADBODSADB:
+      if(!tcdsadbput(adb->dsadb, kbuf, ksiz, vbuf, vsiz)) err = true;
           break;
     break;
   default:
@@ -534,8 +547,8 @@ bool tcadbputkeep(TCADB *adb, const void *kbuf, int ksiz, const void *vbuf, int 
       err = true;
     }
     break;
-  case ADBODDB:
-    if(!tcddbput(adb->ddb, kbuf, ksiz, vbuf, vsiz)) err = true;
+  case ADBODSADB:
+    if(!tcdsadbput(adb->dsadb, kbuf, ksiz, vbuf, vsiz)) err = true;
     break;
   default:
     err = true;
@@ -701,8 +714,8 @@ void *tcadbget(TCADB *adb, const void *kbuf, int ksiz, int *sp){
       rv = NULL;
     }
     break;
-  case ADBODDB:
-    rv = tcddbget(adb->bdb, kbuf, ksiz, sp);
+  case ADBODSADB:
+    rv = tcdsadbget(adb->dsadb, kbuf, ksiz, sp);
     break;
   default:
     rv = NULL;
@@ -719,6 +732,44 @@ char *tcadbget2(TCADB *adb, const char *kstr){
   return tcadbget(adb, kstr, strlen(kstr), &vsiz);
 }
 
+/* Search for a record with range - specific to DSA Tree storage */
+void *tcadbsearch(TCADB *adb, const void *kbuf, int ksiz, uint32_t radius, int *sp) {
+  assert(adb && kbuf && ksiz >= 0 && radius >=0 && sp);
+  char *rv;
+  switch(adb->omode){
+  case ADBODSADB:
+    rv = tcdsadbsearch(adb->dsadb, kbuf, ksiz, radius, sp);
+    break;
+  default:
+    rv = NULL;
+    break;
+  }
+  return rv;
+}
+
+/* Search for a record with range and put a fake record if not exists - specific to DSA Tree storage */
+void *tcadbsearchandputfake(TCADB *adb, const void *kbuf, int ksiz, uint32_t radius, int *sp) {
+  assert(adb && kbuf && ksiz >= 0 && radius >=0 && sp);
+  char *rv;
+  switch(adb->omode){
+  case ADBODSADB:
+
+    rv = tcdsadbsearch(adb->dsadb, kbuf, ksiz, radius, sp);
+
+    if (rv == NULL)
+    {
+        char *vbuf;
+        TCMALLOC(vbuf,1);
+        vbuf[0] = 0;
+        tcdsadbput(adb->dsadb,kbuf,ksiz,vbuf,1);
+    }
+    break;
+  default:
+    rv = NULL;
+    break;
+  }
+  return rv;
+}
 
 /* Get the size of the value of a record in an abstract database object. */
 int tcadbvsiz(TCADB *adb, const void *kbuf, int ksiz){

@@ -35,6 +35,7 @@ __TCADB_CLINKAGEBEGIN
 #include <tcutil.h>
 #include <tchdb.h>
 #include <tcbdb.h>
+#include <tcdsadb.h>
 #include <tcfdb.h>
 #include <tctdb.h>
 
@@ -51,6 +52,7 @@ typedef struct {                         /* type of structure for an abstract da
   TCNDB *ndb;                            /* on-memory tree database object */
   TCHDB *hdb;                            /* hash database object */
   TCBDB *bdb;                            /* B+ tree database object */
+  TCDSADB *dsadb;                            /* DSA tree database object */
   TCFDB *fdb;                            /* fixed-length databae object */
   TCTDB *tdb;                            /* table database object */
   int64_t capnum;                        /* capacity number of records */
@@ -66,6 +68,7 @@ enum {                                   /* enumeration for open modes */
   ADBONDB,                               /* on-memory tree database */
   ADBOHDB,                               /* hash database */
   ADBOBDB,                               /* B+ tree database */
+  ADBODSADB,                               /* DSA tree database */
   ADBOFDB,                               /* fixed-length database */
   ADBOTDB,                               /* table database */
   ADBOSKEL                               /* skeleton database */
@@ -216,6 +219,8 @@ void *tcadbget(TCADB *adb, const void *kbuf, int ksiz, int *sp);
    released with the `free' call when it is no longer in use. */
 char *tcadbget2(TCADB *adb, const char *kstr);
 
+void *tcadbsearch(TCADB *adb, const void *kbuf, int ksiz, uint32_t radius, int *sp);
+void *tcadbsearchandputfake(TCADB *adb, const void *kbuf, int ksiz, uint32_t radius, int *sp);
 
 /* Get the size of the value of a record in an abstract database object.
    `adb' specifies the abstract database object.
