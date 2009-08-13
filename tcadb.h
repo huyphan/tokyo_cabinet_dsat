@@ -220,7 +220,7 @@ void *tcadbget(TCADB *adb, const void *kbuf, int ksiz, int *sp);
 char *tcadbget2(TCADB *adb, const char *kstr);
 
 void *tcadbsearch(TCADB *adb, const void *kbuf, int ksiz, uint32_t radius, int *sp);
-void *tcadbsearchandputfake(TCADB *adb, const void *kbuf, int ksiz, uint32_t radius, int *sp);
+void *tcadbinsertsafe(TCADB *adb, const void *kbuf, int ksiz, uint32_t radius, int *sp);
 
 /* Get the size of the value of a record in an abstract database object.
    `adb' specifies the abstract database object.
