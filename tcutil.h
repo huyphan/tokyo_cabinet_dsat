@@ -3915,7 +3915,7 @@ uint64_t tcpagealign(uint64_t off);
 #else
 #define TCCALLOC(TC_res, TC_nmemb, TC_size) \
   do { \
-    if(!((TC_res) = MYCALLOC((TC_nmemb), (TC_size)))) tcmyfatal("out of memory"); \
+    if(!((TC_res) = MYCALLOC((TC_nmemb), (TC_size)))) tcmyfatal("out of memory "); \
   } while(false)
 #endif
 

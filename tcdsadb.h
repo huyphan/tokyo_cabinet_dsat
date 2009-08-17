@@ -40,7 +40,17 @@ __TCBDB_CLINKAGEBEGIN
  *************************************************************************************************/
 
 typedef unsigned short DSADBDIST;
-typedef unsigned int DSADBCORD;
+typedef unsigned char DSADBCORD;
+
+#define TCDSADBDIST(TC_dim, TC_p1, TC_p2,TC_res) \
+  do { \
+          TC_res = 0;\
+          int i = 0;\
+          for (; i < TC_dim; ++i) {\
+              if (TC_p1[i] > TC_p2[i]) TC_res = TC_res + TC_p1[i] - TC_p2[i];\
+              else TC_res = TC_res + TC_p2[i] - TC_p1[i];\
+          }\
+  } while(false)
 
 typedef struct {                         /* type of structure for a DSA tree database */
   void *mmtx;                            /* mutex for method */
