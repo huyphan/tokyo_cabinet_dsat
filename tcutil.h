@@ -3901,7 +3901,7 @@ uint64_t tcpagealign(uint64_t off);
 #else
 #define TCMALLOC(TC_res, TC_size) \
   do { \
-    if(!((TC_res) = MYMALLOC(TC_size))) tcmyfatal("out of memory"); \
+    if(!((TC_res) = MYMALLOC(TC_size))) tcmyfatal("out of memory 2"); \
   } while(false)
 #endif
 
@@ -3915,7 +3915,7 @@ uint64_t tcpagealign(uint64_t off);
 #else
 #define TCCALLOC(TC_res, TC_nmemb, TC_size) \
   do { \
-    if(!((TC_res) = MYCALLOC((TC_nmemb), (TC_size)))) tcmyfatal("out of memory "); \
+    if(!((TC_res) = MYCALLOC((TC_nmemb), (TC_size)))) tcmyfatal("out of memory 3"); \
   } while(false)
 #endif
 
@@ -3929,7 +3929,7 @@ uint64_t tcpagealign(uint64_t off);
 #else
 #define TCREALLOC(TC_res, TC_ptr, TC_size) \
   do { \
-    if(!((TC_res) = MYREALLOC((TC_ptr), (TC_size)))) tcmyfatal("out of memory"); \
+    if(!((TC_res) = MYREALLOC((TC_ptr), (TC_size)))) tcmyfatal("out of memory 4"); \
   } while(false)
 #endif
 

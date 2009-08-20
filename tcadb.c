@@ -114,8 +114,8 @@ bool tcadbopen(TCADB *adb, const char *name){
   int32_t lmemb = -1;
   int32_t nmemb = -1;
   int32_t lcnum = -1;
-  int32_t ncnum = -1;
-  int32_t pcnum = -1;
+  uint32_t ncnum = -1;
+  uint32_t pcnum = -1;
   int32_t width = -1;
   int64_t limsiz = -1;
   uint8_t dimnum = 0;

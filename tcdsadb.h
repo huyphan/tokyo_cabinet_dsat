@@ -73,14 +73,12 @@ typedef struct {                         /* type of structure for a DSA tree dat
   bool tran;                             /* whether in the transaction */
   char *opaque;                        /* opaque for rollback */
   uint64_t clock;                        /* logical clock */
-  int64_t cnt_saveleaf;                  /* tesing counter for leaf save times */
-  int64_t cnt_loadleaf;                  /* tesing counter for leaf load times */
-  int64_t cnt_killleaf;                  /* tesing counter for leaf kill times */
-  int64_t cnt_adjleafc;                  /* tesing counter for node cache adjust times */
-  int64_t cnt_savenode;                  /* tesing counter for node save times */
-  int64_t cnt_loadnode;                  /* tesing counter for node load times */
-  int64_t cnt_adjnodec;                  /* tesing counter for node cache adjust times */
   uint32_t dimensions;                    /* number of dimension */
+  int64_t cnt_cachehit;                  /* tesing counter for leaf save times */
+  int64_t cnt_cachemiss;                  /* tesing counter for leaf load times */
+  int64_t cnt_adjpagec;                  /* tesing counter for node cache adjust times */
+  int64_t cnt_savepage;                  /* tesing counter for node save times */
+  int64_t depth;
 } TCDSADB;
 
 enum {                                   /* enumeration for additional flags */

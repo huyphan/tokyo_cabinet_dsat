@@ -9309,7 +9309,7 @@ void *tczeromap(uint64_t size){
   assert(size > 0);
   void *ptr = mmap(0, sizeof(size) + size,
                    PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  if(ptr == MAP_FAILED) tcmyfatal("out of memory");
+  if(ptr == MAP_FAILED) tcmyfatal("out of memory 1");
   *(uint64_t *)ptr = size;
   return (char *)ptr + sizeof(size);
 #else
