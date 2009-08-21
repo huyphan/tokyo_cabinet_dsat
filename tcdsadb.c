@@ -9,14 +9,15 @@
 #define DSADBPAGEIDBASE       1
 #define DSADBDEFNCNUM         100               /* default number of node cache */
 #define DSADBDEFPCNUM         2048              /* default number of page cache */
-#define DSADBMAXDISKPAGESIZE  (1LL<<15)         /* maximum size of disk page (1LL<<12) */
+#define DSADBPAGESIZE         (1LL<<14)         /* maximum size of disk page (1LL<<12) */
 #define DSADBMAXNODECOUNT     (1LL<<10)         /* maximum size of disk page */
-#define DSADBMAXNODECACHE     2048               /* maximum number or node to be cached */
-#define DSADBMAXPAGECACHE     2048               /* maximum number or page to be cached */
+#define DSADBMAXNODECACHE     2048              /* maximum number or node to be cached */
+#define DSADBMAXPAGECACHE     2048              /* maximum number or page to be cached */
 #define DSADBINVPAGEID       -1                 /* invalid page id */
 #define DSADBINVOFFSETID     -1                 /* invalid offset id */
 #define DSADBMAXDIST          (300LL*81)        /* specific to Image Mark case */
-#define DSADBMAXDIMENSION     2000              /* max dimenstion of one node */
+#define DSADBDEFDIMENSION     81                /* max dimenstion of one node */
+
 #define DSADBCACHEOUT         64                /* number of pages in a process of cacheout  */
 
 #define DSDDBDEFARITY         10                /* default number of maxarity */
@@ -37,29 +38,28 @@ typedef struct {
 
 typedef struct {
     uint64_t time;
-    /*  uint64_t id; */
     DSADBFPTR child;
     DSADBLPTR sibling;
     DSADBDIST radius;
-    DSADBCORD *point;
+    DSADBCORD point[DSADBDEFDIMENSION];
 } DSADBNODE; /* DSAT node */
 
 typedef struct {
     uint64_t id;
     bool dirty;
     uint32_t subtree_with_diff_parent_count;
-    uint64_t size;
-    TCPTRLIST *nodes;
-	uint32_t depth;
+    uint64_t node_count;
+    uint32_t depth;
+    DSADBNODE nodes[];
 } DSADBPAGE; /* Page structure */
 
 enum { /* enumeration for duplication behavior */
-    DSADBPDOVER, /* overwrite an existing value */
-    DSADBPDKEEP, /* keep the existing value */
-    DSADBPDCAT, /* concatenate values */
-    DSADBPDDUP, /* allow duplication of keys */
-    DSADBPDDUPB, /* allow backward duplication */
-    DSADBPDADDINT, /* add an integer */
+    DSADBPDOVER,     /* overwrite an existing value */
+    DSADBPDKEEP,     /* keep the existing value */
+    DSADBPDCAT,      /* concatenate values */
+    DSADBPDDUP,      /* allow duplication of keys */
+    DSADBPDDUPB,     /* allow backward duplication */
+    DSADBPDADDINT,   /* add an integer */
     DSADBPDADDSADBL, /* add a real number */
     DSADBPDPROC
 /* process by a callback function */
@@ -217,7 +217,6 @@ bool tcdsadbsetmutex(TCDSADB *dsadb){
   return tchdbsetmutex(dsadb->hdb);
 }
 
-
 /* Set the size of the extra mapped memory of a DSA tree database object. */
 bool tcdsadbsetxmsiz(TCDSADB *dsadb, int64_t xmsiz){
   assert(dsadb);
@@ -291,11 +290,6 @@ static void tcdsadbdumpmeta(TCDSADB *dsadb){
   memcpy(wp, &lnum, sizeof(lnum));
   wp += sizeof(lnum);
 
-  lnum = dsadb->dimensions;
-  lnum = TCHTOILL(lnum);
-  memcpy(wp, &lnum, sizeof(lnum));
-  wp += sizeof(lnum);
-
   lnum = dsadb->ncnum;
   lnum = TCHTOILL(lnum);
   memcpy(wp, &lnum, sizeof(lnum));
@@ -339,10 +333,6 @@ static void tcdsadbloadmeta(TCDSADB *dsadb){
   rp += sizeof(lnum);
 
   memcpy(&lnum, rp, sizeof(lnum));
-  dsadb->dimensions = TCITOHL(lnum);
-  rp += sizeof(lnum);
-
-  memcpy(&lnum, rp, sizeof(lnum));
   dsadb->ncnum = TCITOHL(lnum);
   rp += sizeof(lnum);
 
@@ -367,7 +357,6 @@ bool tcdsadbtune(TCDSADB *dsadb, int32_t dimnum, int64_t bnum, int8_t apow, int8
     tcdsadbsetecode(dsadb, TCEINVALID, __FILE__, __LINE__, __func__);
     return false;
   }
-  dsadb->dimensions = (dimnum > 0) ? tclmin(dimnum, DSADBMAXDIMENSION) : DSADBMAXDIMENSION;
   dsadb->opts = opts;
   uint8_t hopts = 0;
   if(opts & DSADBTDEFLATE) hopts |= HDBTDEFLATE;
@@ -400,20 +389,6 @@ static bool tcdsadbpagecacheout(TCDSADB *dsadb, DSADBPAGE *page)
 
   bool err = false;
   if(!tcdsadbpagesave(dsadb,page)) err = true;
-
-  TCPTRLIST *nodes = page->nodes;
-  int ln = TCPTRLISTNUM(nodes);
-  for(int i = 0; i < ln; i++){
-    DSADBNODE *node = TCPTRLISTVAL(nodes, i);
-    if (node)
-    {
-        if (node->point) TCFREE(node->point);
-        TCFREE(node);
-    }
-  }
-
-  tcptrlistdel(nodes);
-
   tcmapout(dsadb->pagec, &(page->id), sizeof(page->id));
   return !err;
 }
@@ -431,7 +406,7 @@ static bool tcdsadbcacheadjust(TCDSADB *dsadb){
 
   if(TCMAPRNUM(dsadb->pagec) > dsadb->pcnum)
   {
-      TCDODEBUG(dsadb->cnt_cnt_adjpagec++);
+    TCDODEBUG(dsadb->cnt_cnt_adjpagec++);
 
     int ecode = tchdbecode(dsadb->hdb);
     bool clk = DSADBLOCKCACHE(dsadb);
@@ -487,8 +462,8 @@ static DSADBNODE *tcdsadbnodeload(DSADBPAGE *page, int index) {
     assert(page);
     if (index < 0) {
         return NULL;
-    	}
-    return TCPTRLISTVAL(page->nodes, index);
+    }
+    return (DSADBNODE *) &page->nodes[index];
 }
 
 /* Create a new node.
@@ -503,9 +478,8 @@ static DSADBNODE *tcdsadbnodenew(TCDSADB *dsadb,DSADBCORD* point) {
     node->child.offset = DSADBINVOFFSETID;
     node->child.pid = DSADBINVPAGEID;
     node->sibling.offset = DSADBINVOFFSETID;
-    TCMALLOC(node->point,dsadb->dimensions*sizeof(DSADBCORD));
 
-    for (int i=0;i<dsadb->dimensions;i++)
+    for (int i=0;i<DSADBDEFDIMENSION;i++)
     {
         node->point[i] = point[i];
     }
@@ -517,37 +491,7 @@ static DSADBNODE *tcdsadbnodenew(TCDSADB *dsadb,DSADBCORD* point) {
 
 static uint32_t tcdsadbnodesize(TCDSADB *dsadb,DSADBNODE *node, uint32_t offset)
 {
-    uint32_t size = 0;
-
-    int64_t llnum;
-    uint64_t ullnum;
-    uint32_t ulnum;
-
-    if (node == NULL) return 0;
-
-    /* offset of node */
-    size += TCCALCVNUMSIZE(offset);
-
-    ullnum = node->time;
-    size += TCCALCVNUMSIZE(ullnum);
-
-    ulnum = node->radius + 1;
-    size += TCCALCVNUMSIZE(ulnum);
-
-    llnum = node->sibling.offset + 1;
-    size += TCCALCVNUMSIZE(llnum);
-
-    llnum = node->child.pid + 1;
-    size += TCCALCVNUMSIZE(llnum);
-
-    llnum = node->child.offset + 1;
-    size += TCCALCVNUMSIZE(llnum);
-
-    for (int j = 0; j < dsadb->dimensions; j++) {
-        ulnum = node->point[j] + 1;
-        size += TCCALCVNUMSIZE(ulnum);
-    }
-    return size;
+    return sizeof(DSADBNODE);
 }
 
 /* Create a new page.
@@ -556,17 +500,21 @@ static uint32_t tcdsadbnodesize(TCDSADB *dsadb,DSADBNODE *node, uint32_t offset)
 
 static DSADBPAGE *tcdsadbpagenew(TCDSADB *dsadb) {
     assert(dsadb);
-    DSADBPAGE page;
-    page.id = ++dsadb->npage + DSADBPAGEIDBASE;
-    page.nodes = tcptrlistnew();
-    page.size = 0;
-    page.subtree_with_diff_parent_count = 1;
-    page.dirty = true;
-
-    tcmapputkeep(dsadb->pagec, &(page.id), sizeof(page.id), &page, sizeof(page));
+    DSADBPAGE *page;
+    uint64_t id = ++dsadb->npage + DSADBPAGEIDBASE;
+    TCMALLOC(page,DSADBPAGESIZE);
+    memset(page,0,DSADBPAGESIZE);
+    page->id = id;
+    page->subtree_with_diff_parent_count = 1;
+    page->dirty = true;
+    page->node_count = 0;
+    tcmapputkeep(dsadb->pagec, &id, sizeof(id), page, DSADBPAGESIZE);
     int rsiz;
+
 //    printf("PAGE IN NEW %llu\n",page.id);
-    return (DSADBPAGE *)tcmapget(dsadb->pagec, &(page.id), sizeof(page.id), &rsiz);
+
+    TCFREE(page);
+    return (DSADBPAGE *)tcmapget(dsadb->pagec, &id, sizeof(id), &rsiz);
 }
 
 /* Save a page into the internal database.
@@ -574,91 +522,13 @@ static DSADBPAGE *tcdsadbpagenew(TCDSADB *dsadb) {
  `page' specifies the page object.
  If successful, the return value is true, else, it is false. */
 static bool tcdsadbpagesave(TCDSADB *dsadb, DSADBPAGE *page) {
+
     assert(dsadb && page);
-    TCDODEBUG(dsadb->cnt_savepage++);
-    TCXSTR *rbuf = tcxstrnew3(DSADBPAGEBUFSIZ);
-    char static_buf[sizeof(uint64_t)* 5];
-    char *dynamic_buf;
-    char *wp = static_buf;
-
-    int step;
-
-    uint64_t ullnum;
-    uint32_t ulnum;
-
-    int64_t node_count = tcptrlistnum(page->nodes);
-
-    /* number of subtree with different parents */
-    ulnum = page->subtree_with_diff_parent_count;
-    TCSETVNUMBUF(step, wp, ulnum);
-    TCXSTRCAT(rbuf, static_buf, step);
-
-	/* page depth */
-    ulnum = page->depth;
-    TCSETVNUMBUF(step, wp, ulnum);
-    TCXSTRCAT(rbuf, static_buf, step);
-
-    TCMALLOC(dynamic_buf,1 + node_count * ( 6 + dsadb->dimensions )* sizeof(uint64_t));
-    DSADBNODE *node;
-
-    for (int i = 0; i < node_count; i++)
-    {
-        node = tcdsadbnodeload(page,i);
-
-        if (node == NULL) continue;
-
-        wp = dynamic_buf;
-
-        /* offset of node */
-        ulnum = i;
-        TCSETVNUMBUF(step, wp, ulnum);
-        wp += step;
-
-        ullnum = node->time;
-        TCSETVNUMBUF64(step, wp, ullnum);
-        wp += step;
-
-        ulnum = node->radius + 1;
-        TCSETVNUMBUF(step, wp, ulnum);
-        wp += step;
-
-        ullnum = node->sibling.offset + 1;
-        TCSETVNUMBUF64(step, wp, ullnum);
-        wp += step;
-
-        ullnum = node->child.pid + 1;
-        TCSETVNUMBUF64(step, wp, ullnum);
-        wp += step;
-
-        ullnum = node->child.offset + 1;
-        TCSETVNUMBUF64(step, wp, ullnum);
-        wp += step;
-
-        for (int j = 0; j < dsadb->dimensions; j++) {
-            ulnum = node->point[j] + 1;
-            TCSETVNUMBUF(step, wp, ulnum);
-            wp += step;
-        }
-
-        TCXSTRCAT(rbuf, dynamic_buf,wp - dynamic_buf );
-    }
-
-    TCFREE(dynamic_buf);
-    bool err = false;
-    step = sprintf(static_buf, "%llx", (unsigned long long) page->id);
-    if (node_count < 1 && !tchdbout(dsadb->hdb, static_buf, step) && tchdbecode(
-            dsadb->hdb) != TCENOREC)
-        err = true;
-
-    page->size = TCXSTRSIZE(rbuf);
-    page->dirty = false;
-	if (page->size >= DSADBMAXDISKPAGESIZE) printf("Invalid Disk Size when saving : %lld %lld \n",page->id,page->size);
-
-    if (!tchdbput(dsadb->hdb, static_buf, step, TCXSTRPTR(rbuf), TCXSTRSIZE(rbuf)))
-        err = true;
-    tcxstrdel(rbuf);
-
-    return !err;
+    char hbuf[(sizeof(uint64_t) + 1) * 2];
+    int step = sprintf(hbuf, "%llx", (unsigned long long) page->id);
+    if (!tchdbout(dsadb->hdb, hbuf, step) && tchdbecode(dsadb->hdb) != TCENOREC)
+            return false;
+    return tchdbput(dsadb->hdb, hbuf, step, page, DSADBPAGESIZE);
 }
 
 /* Load a page from the internal database.
@@ -693,122 +563,16 @@ static DSADBPAGE *tcdsadbpageload(TCDSADB *dsadb, uint64_t id) {
 
     // Get the order of this node in list
     step = sprintf(hbuf, "%llx", (unsigned long long) (id));
-    char *rbuf = NULL;
-    char wbuf[DSADBPAGEBUFSIZ];
-    const char *rp = NULL;
-    rsiz = tchdbget3(dsadb->hdb, hbuf, step, wbuf, DSADBPAGEBUFSIZ);
 
-	if (rsiz >= DSADBMAXDISKPAGESIZE) printf("Invalid Disk Size when loading : %lld %d \n",id,rsiz);
+    DSADBPAGE *page;
+    TCMALLOC(page,DSADBPAGESIZE);
 
-    if (rsiz < 1)
-    { // If getting failed
-        tcdsadbsetecode(dsadb, TCEMISC, __FILE__, __LINE__, __func__);
-        return NULL;
-    } else if (rsiz < DSADBPAGEBUFSIZ)
-    { // Buffer size is big enough for the record
-        rp = wbuf;
-    } else { // The actual record size is larger than buffer size
-        if (!(rbuf = tchdbget(dsadb->hdb, hbuf, step, &rsiz))) {
-            tcdsadbsetecode(dsadb, TCEMISC, __FILE__, __LINE__, __func__);
-            return NULL;
-        }
-        rp = rbuf;
-    }
+    rsiz = tchdbget3(dsadb->hdb, hbuf, step, page, DSADBPAGESIZE);
 
-    DSADBPAGE page;
-
-    page.dirty = false;
-    page.nodes = tcptrlistnew();
-    page.size = rsiz;
-
-//    int64_t llnum;
-    uint64_t ullnum;
-    uint32_t ulnum;
-    int cur_index;
-
-    page.id = id;
-
-    /* number of subtrees with different parents */
-    TCREADVNUMBUF(rp, ulnum, step);
-    page.subtree_with_diff_parent_count = ulnum;
-    rp += step;
-    rsiz -= step;
-
-	/* page depth */
-    TCREADVNUMBUF(rp, ulnum, step);
-    page.depth = ulnum;
-    rp += step;
-    rsiz -= step;
-
-    bool err = false;
-
-    while (rsiz > 0)
-    {
-        TCREADVNUMBUF(rp, ulnum, step);
-        cur_index = ulnum;
-        rp += step;
-        rsiz -= step;
-
-        TCREADVNUMBUF64(rp, ullnum, step);
-        uint64_t time = ullnum - 1;
-        rp += step;
-        rsiz -= step;
-
-        TCREADVNUMBUF(rp, ulnum, step);
-        DSADBDIST radius = ulnum - 1;
-        rp += step;
-        rsiz -= step;
-
-        TCREADVNUMBUF64(rp, ullnum, step);
-        int64_t sibling_offset = ullnum - 1;
-        rp += step;
-        rsiz -= step;
-
-        TCREADVNUMBUF64(rp, ullnum, step);
-        int64_t child_pid = ullnum - 1;
-        rp += step;
-        rsiz -= step;
-
-        TCREADVNUMBUF64(rp, ullnum, step);
-        int64_t child_offset = ullnum - 1;
-        rp += step;
-        rsiz -= step;
-
-        DSADBCORD* point;
-        TCMALLOC(point,dsadb->dimensions*sizeof(DSADBCORD));
-
-        for (int j = 0; j < dsadb->dimensions; j++) {
-            TCREADVNUMBUF(rp, ulnum, step);
-            point[j] = ulnum - 1;
-            rp += step;
-            rsiz -= step;
-        }
-
-        DSADBNODE *node = tcdsadbnodenew(dsadb,point);
-        node->time = time;
-        node->radius = radius;
-        node->sibling.offset = sibling_offset;
-        node->child.offset = child_offset;
-        node->child.pid = child_pid;
-
-        while (tcptrlistnum(page.nodes) < cur_index)
-        {
-            tcptrlistpush(page.nodes, NULL);
-        }
-        tcptrlistpush(page.nodes, node);
-        TCFREE(point);
-    }
-
-    if (err || rsiz != 0) {
-        tcdsadbsetecode(dsadb, TCEMISC, __FILE__, __LINE__, __func__);
-        return NULL;
-    }
-
-    if (dsadb->depth < page.depth) dsadb->depth = page.depth;
-
-//    printf("PAGE IN %llu\n",id);
     clk = DSADBLOCKCACHE(dsadb);
-    tcmapput(dsadb->pagec, &id, sizeof(id), &page, sizeof(page));
+    tcmapput(dsadb->pagec, &id, sizeof(id), page, DSADBPAGESIZE);
+    TCFREE(page);
+
     p = (DSADBPAGE *) tcmapget(dsadb->pagec, &id, sizeof(id), &rsiz);
     if (clk)
         DSADBUNLOCKCACHE(dsadb);
@@ -915,7 +679,7 @@ static const DSADBNODE *tcdsadbrangesearch(TCDSADB *dsadb, DSADBNODE *elem,
     time_t t1;
 
     DSADBCORD* ktemp = (DSADBCORD*) kbuf;
-    TCDSADBDIST(dsadb->dimensions, ktemp, elem->point, dp);
+    TCDSADBDIST(DSADBDEFDIMENSION, ktemp, elem->point, dp);
 
     if ((elem->time <= t) && (dp <= elem->radius + r))
     {
@@ -936,7 +700,7 @@ static const DSADBNODE *tcdsadbrangesearch(TCDSADB *dsadb, DSADBNODE *elem,
 
             /* TODO: Avoid calling dist function by using dist array */
             DSADBCORD* ktemp = (DSADBCORD*) kbuf;
-            TCDSADBDIST(dsadb->dimensions, ktemp, node->point, dp);
+            TCDSADBDIST(DSADBDEFDIMENSION, ktemp, node->point, dp);
 
             if (dp <= min_dist + 2* r ) {
 
@@ -946,7 +710,7 @@ static const DSADBNODE *tcdsadbrangesearch(TCDSADB *dsadb, DSADBNODE *elem,
                 while (sibling_offset != DSADBINVOFFSETID) {
                     sibling = tcdsadbnodeload(page, sibling_offset);
 
-                    TCDSADBDIST(dsadb->dimensions, ktemp, sibling->point, dp1);
+                    TCDSADBDIST(DSADBDEFDIMENSION, ktemp, sibling->point, dp1);
 
                     if ((sibling->time <= t1) && (dp > dp1 + 2* r )) {
                         t1 = sibling->time;
@@ -987,28 +751,17 @@ static const DSADBNODE *tcdsadbsearchimpl(TCDSADB *dsadb, const DSADBCORD *kbuf,
     DSADBNODE *elem = tcdsadbnodeload(page, dsadb->root_offset);
 
     return tcdsadbrangesearch(dsadb, elem, kbuf, ksiz, r, t);
-
 }
 
 static int tcdsadbinsertnode(DSADBPAGE *page,DSADBNODE *node)
 {
     int idx = 0;
-    while (idx < tcptrlistnum(page->nodes))
+    while (page->nodes[idx].time != 0)
     {
-        if (tcdsadbnodeload(page,idx) == NULL)
-        {
-            break;
-        }
         idx++;
     }
-    if (idx == tcptrlistnum(page->nodes))
-    {
-        tcptrlistpush(page->nodes,node);
-    }
-    else
-    {
-        tcptrlistover(page->nodes,idx,node);
-    }
+
+    memcpy(&(page->nodes[idx]),node,sizeof(DSADBNODE));
 
     return idx;
 }
@@ -1031,29 +784,31 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
     if (tcdsadbnodecheck(dsadb,kbuf,ksiz))
     {
         tchdbput(dsadb->hdb, kbuf, ksiz, vbuf, vsiz);
-        tcmapputkeep(dsadb->nodec, kbuf, dsadb->dimensions*sizeof(DSADBCORD), vbuf, vsiz);
+        tcmapputkeep(dsadb->nodec, kbuf, DSADBDEFDIMENSION*sizeof(DSADBCORD), vbuf, vsiz);
         return true;
     }
+
     dsadb->nnode++;
     /* Store the record to cache and hash db first */
     tchdbput(dsadb->hdb, kbuf, ksiz, vbuf, vsiz);
-    tcmapputkeep(dsadb->nodec, kbuf, dsadb->dimensions*sizeof(DSADBCORD), vbuf, vsiz);
+    tcmapputkeep(dsadb->nodec, kbuf, DSADBDEFDIMENSION*sizeof(DSADBCORD), vbuf, vsiz);
 
     /* Initialize the node */
     DSADBNODE *node = tcdsadbnodenew(dsadb,(DSADBCORD*) kbuf);
 
-//    printf("*** Insert %d %d\n",node->point[0],node->point[1]);
+    printf("*** Insert %d %d\n",node->point[0],node->point[1]);
 
     /* If the tree is empty */
     if (dsadb->root_pid == DSADBINVPAGEID) {
         DSADBPAGE *page = tcdsadbpagenew(dsadb);
-        tcdsadbinsertnode(page,node);
+        int idx = tcdsadbinsertnode(page,node);
+        TCFREE(node);
         tcdsadbpagesave(dsadb, page);
 
         /* This node is the root */
         dsadb->root_pid = page->id;
 		page->depth = 1;
-        dsadb->root_offset = tcptrlistnum(page->nodes) - 1;
+        dsadb->root_offset = idx;
     }
     else
     {
@@ -1066,13 +821,13 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
         DSADBNODE *candidate;
         DSADBDIST min_dist, child_dist;
         uint16_t nchild;
-        uint32_t n_size;
 
         int64_t first_node_offset = DSADBINVOFFSETID;
         DSADBNODE *first_node_parent = NULL;
+
         /* Traverse through its neighbors  */
         DSADBDIST dp;
-        TCDSADBDIST(dsadb->dimensions, elem->point, node->point, dp);
+        TCDSADBDIST(DSADBDEFDIMENSION, elem->point, node->point, dp);
 
         while (1)
         {
@@ -1081,7 +836,7 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
             child = elem;
             nchild = 0;
             elem->radius = MAX(elem->radius,dp);
-            n_size = 0;
+            int node_count = 0;
 
             parent_page = page;
 
@@ -1093,6 +848,7 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                     page = tcdsadbpageload(dsadb, elem->child.pid);
                     first_node_offset = DSADBINVOFFSETID;
                 }
+
                 int64_t child_offset = elem->child.offset;
 
                 if (first_node_offset == DSADBINVOFFSETID)
@@ -1100,19 +856,21 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                     first_node_offset = child_offset;
                     first_node_parent = elem;
                 }
+
                 /* traverse all the child node */
                 while (child_offset != DSADBINVOFFSETID)
                 {
                     nchild++;
 					child = tcdsadbnodeload(page, child_offset);
-                    TCDSADBDIST(dsadb->dimensions, child->point,node->point,child_dist);
+
+                    TCDSADBDIST(DSADBDEFDIMENSION, child->point,node->point,child_dist);
 
                     if (child_dist < min_dist) {
                         min_dist = child_dist;
                         candidate = child;
                     }
 
-                    n_size += tcdsadbnodesize(dsadb,child,child_offset);
+                    node_count++;
 
                     child_offset = child->sibling.offset;
                 }
@@ -1122,43 +880,45 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
             {
                 // insert node to page
                 uint64_t idx = tcdsadbinsertnode(page,node);
-                /* Insert as a new child */
+                TCFREE(node);
+                node = tcdsadbnodeload(page,idx);
 
+                /* Insert as a new child */
                 if (child == elem)
                 {
                     elem->child.pid = page->id;
                     elem->child.offset = idx;
+//                    printf("Insert as child of %d %d, pid=%lld idx = %lld \n",child->point[0],child->point[1],page->id,idx);
                 }
                 /* Insert as a new sibling */
                 else
                 {
                     child->sibling.offset = idx;
+//                    printf("Insert as sibling of %d %d, pid=%lld idx = %lld \n",child->point[0],child->point[1],page->id,idx);
                 }
-
+                printf("INSERTED\n");
                 page->dirty = true;
 
-                int node_size = tcdsadbnodesize(dsadb,node,idx);
-                n_size += node_size;
-                page->size += node_size;
+                node_count++;
+                page->node_count++;
 
-                if (page->size < DSADBMAXDISKPAGESIZE)
+                if (page->node_count < dsadb->maxnodeperpage)
                 {
                     if (page->id == dsadb->root_pid)
                     {
                         tcdsadbpagesave(dsadb,page);
                     }
                 }
-                else // (page->size  >= DSADBMAXDISKPAGESIZE)
+                else // (page->size  >= DSADBPAGESIZE)
                 {
-
                     /* move to parent */
                     int node_has_child = 0;
-                    if ( (parent_page != NULL) && (parent_page->id != page->id) && (parent_page->size + n_size < DSADBMAXDISKPAGESIZE))
+                    if ( (parent_page != NULL) && (parent_page->id != page->id) && (parent_page->node_count + node_count < dsadb->maxnodeperpage))
                     {
 //                        printf("############ MOVE TO PARENT:  page : %lld  -> parent : %lld\n",page->id,parent_page->id);
 
-                        uint32_t removed_size = 0;
-                        uint32_t added_size = 0;
+                        uint32_t removed_node_count = 0;
+                        uint32_t added_node_count = 0;
 
                         int64_t child_offset = elem->child.offset;
 
@@ -1168,14 +928,18 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                         {
                             node_has_child++;
                         }
+
                         // insert to parent page
                         int64_t idx = tcdsadbinsertnode(parent_page,child);
 
-                        // remove from current page
-                        tcptrlistover(page->nodes,child_offset,NULL);
+                        // reload from new location
+                        child = tcdsadbnodeload(parent_page, idx);
 
-                        removed_size += tcdsadbnodesize(dsadb,child,child_offset);
-                        added_size += tcdsadbnodesize(dsadb,child,idx);
+                        // remove from current page
+                        page->nodes[child_offset].time = 0;
+
+                        removed_node_count ++;
+                        added_node_count++;
 
                         // re-set far pointer
                         elem->child.pid = parent_page->id;
@@ -1188,14 +952,18 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                         {
                             // get from current page
                             DSADBNODE *temp = tcdsadbnodeload(page, child_offset);
+
                             // insert to parent page
                             int64_t idx = tcdsadbinsertnode(parent_page,temp);
 
                             // remove from current page
-                            tcptrlistover(page->nodes,child_offset,NULL);
+                            temp->time = 0;
 
-                            removed_size += tcdsadbnodesize(dsadb,temp,child_offset);
-                            added_size += tcdsadbnodesize(dsadb,temp,idx);
+                            // reload from new location
+                            temp = tcdsadbnodeload(parent_page, idx);
+
+                            removed_node_count ++;
+                            added_node_count++;
 
                             // update previous sibling
                             child->sibling.offset = idx;
@@ -1209,8 +977,8 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                             child_offset = child->sibling.offset;
                         }
 
-                        page->size -= removed_size;
-                        parent_page->size += added_size;
+                        page->node_count -= removed_node_count;
+                        parent_page->node_count += added_node_count;
 
                         page->dirty = true;
                         parent_page->dirty = true;
@@ -1229,22 +997,28 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                         int64_t added_queue[DSADBMAXNODECOUNT];
                         int first = 0;
                         int last = 0;
-                        uint32_t removed_size = 0;
-                        uint32_t added_size = 0;
+                        uint32_t removed_node_count = 0;
+                        uint32_t added_node_count = 0;
 
                         DSADBPAGE *new_page = tcdsadbpagenew(dsadb);
 
+                        // get from current page
                         node = tcdsadbnodeload(page, first_node_offset);
+
+                        // insert to new page
                         int64_t new_idx = tcdsadbinsertnode(new_page,node);
+
+                        node->time = 0;
+
+                        // reload from new page
+                        node = tcdsadbnodeload(new_page, new_idx);
 
                         first_node_parent->child.pid = new_page->id;
                         first_node_parent->child.offset = new_idx;
                         added_queue[last++] = new_idx;
 
-                        tcptrlistover(page->nodes,first_node_offset,NULL);
-
-                        removed_size += tcdsadbnodesize(dsadb,node,first_node_offset);
-                        added_size += tcdsadbnodesize(dsadb,node,new_idx);
+                        removed_node_count ++;
+                        added_node_count ++;
 
                         while (last > first)
                         {
@@ -1258,15 +1032,16 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                             {
                                 DSADBNODE *temp = tcdsadbnodeload(page, node->sibling.offset);
 
-                                // insert to parent page
+                                // insert to new page
                                 int new_idx = tcdsadbinsertnode(new_page,temp);
 
                                 // add to queue
                                 added_queue[last++] = new_idx;
-                                tcptrlistover(page->nodes,node->sibling.offset,NULL);
 
-                                removed_size += tcdsadbnodesize(dsadb,temp,node->sibling.offset);
-                                added_size += tcdsadbnodesize(dsadb,temp,new_idx);
+                                temp->time = 0;
+
+                                removed_node_count ++;
+                                added_node_count ++;
 
                                 // update
                                 node->sibling.offset = new_idx;
@@ -1281,18 +1056,19 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
 
                                // add to queue
                                 added_queue[last++] = new_idx;
-                                tcptrlistover(page->nodes,node->child.offset,NULL);
 
-                                removed_size += tcdsadbnodesize(dsadb,temp,node->child.offset);
-                                added_size += tcdsadbnodesize(dsadb,temp,new_idx);
+                                temp->time = 0;
+
+                                removed_node_count ++;
+                                added_node_count ++;
 
                                 node->child.pid = new_page->id;
                                 node->child.offset = new_idx;
                             }
                         }
 
-                        page->size -= removed_size;
-                        new_page->size += added_size;
+                        page->node_count -= removed_node_count;
+                        new_page->node_count += added_node_count;
 
                         page->subtree_with_diff_parent_count--;
                         new_page->subtree_with_diff_parent_count = 1;
@@ -1309,20 +1085,21 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                     {
 //                        printf("############ HORIZONTAL page : %lld\n",page->id);
                         int i;
-                        uint32_t removed_size = 0;
-                        uint32_t added_size = 0;
+                        uint32_t removed_node_count = 0;
+                        uint32_t added_node_count = 0;
 
                         bool is_parent[DSADBMAXNODECOUNT];
                         memset(is_parent,1,DSADBMAXNODECOUNT*sizeof(bool));
 
                         /* Traverse all the nodes in page to
                             detect the parents of subtrees in this page
-                            */
-                        for (i = 0; i < tcptrlistnum(page->nodes); i++)
+                        */
+
+                        for (i = 0; i < dsadb->maxnodeperpage; i++)
                         {
                             DSADBNODE *node = tcdsadbnodeload(page,i);
 
-                            if (node == NULL) continue;
+                            if (node->time == 0) continue;
 
                             if ( (node->child.pid == page->id) && (node->child.offset != DSADBINVOFFSETID) )
                             {
@@ -1345,7 +1122,7 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                         memset(depth,0,DSADBMAXNODECOUNT*sizeof(int));
                         memset(size,0,DSADBMAXNODECOUNT*sizeof(int));
 
-                        for (i = 0; i < tcptrlistnum(page->nodes); i++)
+                        for (i = 0; i < dsadb->maxnodeperpage; i++)
                         {
                             DSADBNODE *node = tcdsadbnodeload(page,i);
                             if (node == NULL) continue;
@@ -1360,6 +1137,7 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                         {
                             int64_t idx = queue[first++];
                             DSADBNODE *node = tcdsadbnodeload(page,idx);
+//                            printf("NODE INDEX %lld data : %d %d \n",idx,node->point[0],node->point[1]);
                             size[depth[idx]] += tcdsadbnodesize(dsadb,node,idx);
 
 //                              printf("-- %lld : depth = %d\n",idx,depth[idx]);
@@ -1374,17 +1152,16 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                             {
                                 queue[last++] = node->sibling.offset;
                                 depth[node->sibling.offset] = depth[idx];
-//                                printf("++ dib %lld\n",node->sibling.offset);
+//                                printf("++ sib %lld\n",node->sibling.offset);
                             }
                         }
-
                         /* Find the smallest d */
                         int d = 0;
                         uint64_t total_size = 0;
                         while (true)
                         {
                             total_size += size[d++];
-                            if (total_size >= DSADBMAXDISKPAGESIZE / 2)
+                            if (total_size >= DSADBPAGESIZE / 2)
                             {
                                 break;
                             }
@@ -1405,7 +1182,7 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
 
                         int parent_node_count = 0;
 
-                        /* We traverse all the nodes of depth d-1 to add initial nodes*/
+                        /* We traverse all the nodes of depth d-1 to add initial nodes */
                         for (i = 0; i < qsize; i++)
                         {
                             int64_t idx = queue[i];
@@ -1422,13 +1199,13 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                                      // insert to parent page
                                      int new_idx = tcdsadbinsertnode(new_page,temp);
 
+                                     temp->time = 0;
+
                                      // add to queue, the index is the offset of new page
                                      added_queue[last++] = new_idx;
-                                     tcptrlistover(page->nodes,node->child.offset,NULL);
 
-                                     removed_size += tcdsadbnodesize(dsadb,temp,node->child.offset);
-                                     added_size += tcdsadbnodesize(dsadb,temp,new_idx);
-
+                                     removed_node_count ++;
+                                     added_node_count ++;
 
                                      node->child.pid = new_page->id;
                                      node->child.offset = new_idx;
@@ -1447,16 +1224,17 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                             if ( (node->sibling.offset != DSADBINVOFFSETID) )
                             {
                                 DSADBNODE *temp = tcdsadbnodeload(page, node->sibling.offset);
+
                                 // insert to parent page
                                 int new_idx = tcdsadbinsertnode(new_page,temp);
+
+                                temp->time = 0;
 
                                 // add to queue
                                 added_queue[last++] = new_idx;
 
-                                tcptrlistover(page->nodes,node->sibling.offset,NULL);
-
-                                removed_size += tcdsadbnodesize(dsadb,temp,node->sibling.offset);
-                                added_size += tcdsadbnodesize(dsadb,temp,new_idx);
+                                removed_node_count ++;
+                                added_node_count ++;
 
                                 node->sibling.offset = new_idx;
                             }
@@ -1467,21 +1245,21 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
                                 // insert to parent page
                                 int new_idx = tcdsadbinsertnode(new_page,temp);
 
+                                temp->time = 0;
+
                                 // add to queue
                                 added_queue[last++] = new_idx;
 
-                                tcptrlistover(page->nodes,node->child.offset,NULL);
-
-                                removed_size += tcdsadbnodesize(dsadb,temp,node->child.offset);
-                                added_size += tcdsadbnodesize(dsadb,temp,new_idx);
+                                removed_node_count ++;
+                                added_node_count ++;
 
                                 node->child.pid = new_page->id;
                                 node->child.offset = new_idx;
                             }
                         }
 
-                        page->size -= removed_size;
-                        new_page->size += added_size;
+                        page->node_count -= removed_node_count;
+                        new_page->node_count += added_node_count;
 
                         new_page->subtree_with_diff_parent_count = parent_node_count;
 
@@ -1661,6 +1439,8 @@ TCDSADB *tcdsadbnew(void) {
     dsadb->nnode = 0;
     dsadb->npage = 0;
     dsadb->depth = 0;
+    dsadb->maxnodeperpage = (DSADBPAGESIZE - sizeof(DSADBPAGE))/sizeof(DSADBNODE) - 1;
+    printf("max node per page : %lld\n",dsadb->maxnodeperpage);
     tchdbsetxmsiz(dsadb->hdb, 0);
     return dsadb;
 }
@@ -1687,13 +1467,13 @@ bool tcdsadbput(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *vbuf,
 
     assert(dsadb && kbuf && ksiz >= 0 && vbuf && vsiz >= 0);
 
-    if (ksiz < dsadb->dimensions * sizeof(DSADBCORD))
+    if (ksiz < DSADBDEFDIMENSION * sizeof(DSADBCORD))
     {
         tcdsadbsetecode(dsadb, TCEINVALID, __FILE__, __LINE__, __func__);
         return false;
     }
 
-    ksiz = MIN(ksiz,dsadb->dimensions * sizeof(DSADBCORD));
+    ksiz = MIN(ksiz,DSADBDEFDIMENSION * sizeof(DSADBCORD));
 
     if (!DSADBLOCKMETHOD(dsadb, true))
         return false;
@@ -1732,13 +1512,13 @@ bool tcdsadbput2(TCDSADB *dsadb, const char *str, const char *vstr) {
 void *tcdsadbsearch(TCDSADB *dsadb, const void *kbuf, int ksiz, int64_t r, int *sp) {
     assert(dsadb && kbuf && ksiz >= 0 && sp);
 
-    if (ksiz < dsadb->dimensions * sizeof(DSADBCORD))
+    if (ksiz < DSADBDEFDIMENSION * sizeof(DSADBCORD))
     {
         tcdsadbsetecode(dsadb, TCEINVALID, __FILE__, __LINE__, __func__);
         return NULL;
     }
 
-    ksiz = MIN(ksiz,dsadb->dimensions * sizeof(DSADBCORD));
+    ksiz = MIN(ksiz,DSADBDEFDIMENSION * sizeof(DSADBCORD));
 
     /* Try to get directly from hash database */
     const char *vbuf = tcdsadbget(dsadb, kbuf, ksiz, sp);
@@ -1762,7 +1542,7 @@ void *tcdsadbsearch(TCDSADB *dsadb, const void *kbuf, int ksiz, int64_t r, int *
         DSADBUNLOCKMETHOD(dsadb);
         if (node != NULL)
         {
-            vbuf = tcdsadbget(dsadb, node->point, dsadb->dimensions*sizeof(DSADBCORD), sp);
+            vbuf = tcdsadbget(dsadb, node->point, DSADBDEFDIMENSION*sizeof(DSADBCORD), sp);
         }
     }
 

@@ -61,24 +61,25 @@ typedef struct {                         /* type of structure for a DSA tree dat
   uint32_t arity;                        /* max number of children for each node */
   uint8_t opts;                          /* options */
   uint64_t first;                        /* ID number of the first leaf */
-  uint64_t nnode;                         /* number of nodes */
+  uint64_t nnode;                        /* number of nodes */
   uint64_t npage;                        /* number of pages */
   TCMAP *leafc;                          /* cache for leaves */
   TCMAP *nodec;                          /* cache for nodes */
   TCMAP *pagec;                          /* cache for pages */
   uint32_t ncnum;                        /* maximum number of cached values */
   uint32_t pcnum;                        /* maximum number of cached pages */
-  uint64_t root_offset;                 /* offset of root node in its page */
-  uint64_t root_pid;                    /* page ID of root node */
+  uint64_t root_offset;                  /* offset of root node in its page */
+  uint64_t root_pid;                     /* page ID of root node */
   bool tran;                             /* whether in the transaction */
-  char *opaque;                        /* opaque for rollback */
+  char *opaque;                          /* opaque for rollback */
   uint64_t clock;                        /* logical clock */
-  uint32_t dimensions;                    /* number of dimension */
+  uint32_t dimensions;                   /* number of dimension */
   int64_t cnt_cachehit;                  /* tesing counter for leaf save times */
-  int64_t cnt_cachemiss;                  /* tesing counter for leaf load times */
+  int64_t cnt_cachemiss;                 /* tesing counter for leaf load times */
   int64_t cnt_adjpagec;                  /* tesing counter for node cache adjust times */
   int64_t cnt_savepage;                  /* tesing counter for node save times */
   int64_t depth;
+  uint64_t maxnodeperpage;               /* maximum of nodes per page */
 } TCDSADB;
 
 enum {                                   /* enumeration for additional flags */
