@@ -587,7 +587,6 @@ static DSADBPAGE *tcdsadbpageload(TCDSADB *dsadb, uint64_t id) {
 
     if (rsiz != DSADBPAGESIZE)
     {
-    	printf("%d %lld\n",rsiz,id);
     	return NULL;
     }
 
@@ -752,6 +751,7 @@ static const DSADBNODE *tcdsadbrangesearch(TCDSADB *dsadb, DSADBNODE *elem,
  record. */
 static const DSADBNODE *tcdsadbsearchimpl(TCDSADB *dsadb, const DSADBCORD *kbuf,
         int64_t ksiz, int64_t r, int *sp) {
+
     assert(dsadb && kbuf && ksiz >= 0 && sp);
 
     time_t t = time(NULL);
@@ -784,6 +784,7 @@ static int tcdsadbinsertnode(DSADBPAGE *page,DSADBNODE *node)
  If successful, the return value is true, else, it is false. */
 static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
         const void *vbuf, int vsiz, int dmode) {
+
     assert(dsadb && kbuf && ksiz >= 0);
     int64_t pid = dsadb->root_pid;
     int64_t root_offset = dsadb->root_offset;
@@ -1606,6 +1607,60 @@ void *tcdsadbsearch2(TCDSADB *dsadb, const char *kbuf, int64_t r) {
     int sp;
 
     return tcdsadbsearch(dsadb, kstr, strlen(kbuf) * sizeof(DSADBCORD), r, &sp);
+}
+
+void *tcdsadbinsersafe(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *vbuf, int vsiz, uint32_t r, int *sp) {
+    assert(dsadb && kbuf && ksiz >= 0 && sp);
+
+    if (!DSADBLOCKMETHOD(dsadb, true))
+        return NULL;
+
+    if (ksiz != DSADBDEFDIMENSION * sizeof(DSADBCORD))
+    {
+        tcdsadbsetecode(dsadb, TCEINVALID, __FILE__, __LINE__, __func__);
+        DSADBUNLOCKMETHOD(dsadb);
+        return NULL;
+    }
+
+    if(!dsadb->open){
+        tcdsadbsetecode(dsadb, TCEINVALID, __FILE__, __LINE__, __func__);
+        DSADBUNLOCKMETHOD(dsadb);
+        return NULL;
+    }
+
+    /* Try to get directly from hash database */
+
+    const char *rbuf = tcdsadbgetimpl(dsadb, kbuf, ksiz, sp);
+
+    if (rbuf == NULL)
+    {
+        DSADBNODE *node = (DSADBNODE*) tcdsadbsearchimpl(dsadb, kbuf, ksiz, r, sp);
+        if (node != NULL)
+        {
+            rbuf = tcdsadbgetimpl(dsadb, node->point, DSADBDEFDIMENSION*sizeof(DSADBCORD), sp);
+        }
+    }
+
+    char *rv;
+
+    if (rbuf) {
+        TCMEMDUP(rv, rbuf, *sp);
+    } else {
+        /* Try to insert */
+        tcdsadbputimpl(dsadb, kbuf, ksiz, vbuf, vsiz, DSADBPDOVER);
+        rv = NULL;
+    }
+
+    DSADBUNLOCKMETHOD(dsadb);
+
+    bool adj = TCMAPRNUM(dsadb->pagec) > dsadb->pcnum || TCMAPRNUM(dsadb->nodec) > dsadb->ncnum;
+
+    if(adj && DSADBLOCKMETHOD(dsadb, true)){
+      tcdsadbcacheadjust(dsadb);
+      DSADBUNLOCKMETHOD(dsadb);
+    }
+
+    return rv;
 }
 
 /* Close a DSA tree database object. */

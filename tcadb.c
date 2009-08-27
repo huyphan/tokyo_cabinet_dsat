@@ -748,21 +748,12 @@ void *tcadbsearch(TCADB *adb, const void *kbuf, int ksiz, uint32_t radius, int *
 }
 
 /* Search for a record with range and put a fake record if not exists - specific to DSA Tree storage */
-void *tcadbinsertsafe(TCADB *adb, const void *kbuf, int ksiz, uint32_t radius, int *sp) {
+void *tcadbinsertsafe(TCADB *adb, const void *kbuf, int ksiz, const void *vbuf, int vsiz, uint32_t radius, int *sp) {
   assert(adb && kbuf && ksiz >= 0 && radius >=0 && sp);
   char *rv;
   switch(adb->omode){
   case ADBODSADB:
-
-    rv = tcdsadbsearch(adb->dsadb, kbuf, ksiz, radius, sp);
-
-    if (rv == NULL)
-    {
-        char *vbuf;
-        TCMALLOC(vbuf,1);
-        vbuf[0] = 0;
-        tcdsadbput(adb->dsadb,kbuf,ksiz,vbuf,1);
-    }
+      tcdsadbinsersafe(adb->dsadb, kbuf, ksiz, vbuf, vsiz, radius, sp);
     break;
   default:
     rv = NULL;
