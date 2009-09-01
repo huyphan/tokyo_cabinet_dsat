@@ -756,8 +756,11 @@ static const DSADBNODE *tcdsadbsearchimpl(TCDSADB *dsadb, const DSADBCORD *kbuf,
 
     time_t t = time(NULL);
     DSADBPAGE *page = tcdsadbpageload(dsadb, dsadb->root_pid);
+	if (page == NULL) 
+		return NULL;
     DSADBNODE *elem = tcdsadbnodeload(page, dsadb->root_offset);
-
+	if (elem == NULL) 
+		return NULL;
     return tcdsadbrangesearch(dsadb, elem, kbuf, ksiz, r, t);
 }
 
