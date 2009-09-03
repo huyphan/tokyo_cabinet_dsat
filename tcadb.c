@@ -753,7 +753,7 @@ void *tcadbinsertsafe(TCADB *adb, const void *kbuf, int ksiz, const void *vbuf, 
   char *rv;
   switch(adb->omode){
   case ADBODSADB:
-      tcdsadbinsersafe(adb->dsadb, kbuf, ksiz, vbuf, vsiz, radius, sp);
+    rv = tcdsadbinsertsafe(adb->dsadb, kbuf, ksiz, vbuf, vsiz, radius, sp);
     break;
   default:
     rv = NULL;

@@ -1612,7 +1612,7 @@ void *tcdsadbsearch2(TCDSADB *dsadb, const char *kbuf, int64_t r) {
     return tcdsadbsearch(dsadb, kstr, strlen(kbuf) * sizeof(DSADBCORD), r, &sp);
 }
 
-void *tcdsadbinsersafe(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *vbuf, int vsiz, uint32_t r, int *sp) {
+void *tcdsadbinsertsafe(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *vbuf, int vsiz, uint32_t r, int *sp) {
     assert(dsadb && kbuf && ksiz >= 0 && sp);
 
     if (!DSADBLOCKMETHOD(dsadb, true))
@@ -1634,7 +1634,7 @@ void *tcdsadbinsersafe(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *v
     /* Try to get directly from hash database */
 
     const char *rbuf = tcdsadbgetimpl(dsadb, kbuf, ksiz, sp);
-
+	    
     if (rbuf == NULL)
     {
         DSADBNODE *node = (DSADBNODE*) tcdsadbsearchimpl(dsadb, kbuf, ksiz, r, sp);

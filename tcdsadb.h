@@ -128,7 +128,7 @@ void *tcdsadbsearch(TCDSADB *dsadb, const void *kbuf, int ksiz, int64_t r, int *
 
 void *tcdsadbsearch2(TCDSADB *dsadb, const char *kbuf, int64_t r);
 
-void *tcdsadbinsersafe(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *vbuf, int vsiz, uint32_t r, int *sp);
+void *tcdsadbinsertsafe(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *vbuf, int vsiz, uint32_t r, int *sp);
 
 /* Close a DSA tree database object. */
 bool tcdsadbclose(TCDSADB *dsadb);
