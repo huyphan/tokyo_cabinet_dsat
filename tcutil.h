@@ -28,7 +28,9 @@ __TCUTIL_CLINKAGEBEGIN
 
 
 #include <stdlib.h>
+#if ! defined(__cplusplus)
 #include <stdbool.h>
+#endif
 #include <stdint.h>
 #include <time.h>
 #include <limits.h>
@@ -2260,6 +2262,12 @@ TCMAP *tcmpoolmapnew(TCMPOOL *mpool);
 TCTREE *tcmpooltreenew(TCMPOOL *mpool);
 
 
+/* Remove the most recently installed cleanup handler.
+   `mpool' specifies the memory pool object.
+   `exe' specifies whether to execute the destructor of the removed handler. */
+void tcmpoolpop(TCMPOOL *mpool, bool exe);
+
+
 /* Get the global memory pool object.
    The return value is the global memory pool object.
    The global memory pool object is a singleton and assured to be deleted when the porcess is
@@ -2493,12 +2501,22 @@ bool tcregexmatch(const char *str, const char *regex);
 char *tcregexreplace(const char *str, const char *regex, const char *alt);
 
 
-/* Get the MD5 hash value of a record.
-   `ptr' specifies the pointer to the region of the record.
+/* Get the MD5 hash value of a serial object.
+   `ptr' specifies the pointer to the region.
    `size' specifies the size of the region.
    `buf' specifies the pointer to the region into which the result string is written.  The size
    of the buffer should be equal to or more than 48 bytes. */
 void tcmd5hash(const void *ptr, int size, char *buf);
+
+
+/* Cipher or decipher a serial object with the Arcfour stream cipher.
+   `ptr' specifies the pointer to the region.
+   `size' specifies the size of the region.
+   `kbuf' specifies the pointer to the region of the cipher key.
+   `ksiz' specifies the size of the region of the cipher key.
+   `obuf' specifies the pointer to the region into which the result data is written.  The size
+   of the buffer should be equal to or more than the input region. */
+void tcarccipher(const void *ptr, int size, const void *kbuf, int ksiz, void *obuf);
 
 
 /* Get the time of day in seconds.
@@ -2553,7 +2571,7 @@ void tcdatestrhttp(int64_t t, int jl, char *buf);
    `str' specifies the date string in decimal, hexadecimal, W3CDTF, or RFC 822 (1123).  Decimal
    can be trailed by "s" for in seconds, "m" for in minutes, "h" for in hours, and "d" for in
    days.
-   The return value is the time value of the date or `INT64_MAX' if the format is invalid. */
+   The return value is the time value of the date or `INT64_MIN' if the format is invalid. */
 int64_t tcstrmktime(const char *str);
 
 
@@ -2791,6 +2809,18 @@ int tcchidxhash(TCCHIDX *chidx, const void *ptr, int size);
    Because the region of the return value is allocated with the `malloc' call, it should be
    released with the `free' call when it is no longer in use. */
 char *tcrealpath(const char *path);
+
+
+/* Get the status information of a file.
+   `path' specifies the path of the file.
+   `isdirp' specifies the pointer to a variable into which whether the file is a directory is
+   assigned.  If it is `NULL', it is ignored.
+   `sizep' specifies the pointer to a variable into which the size of the file is assigned.  If
+   it is `NULL', it is ignored.
+   `ntimep' specifies the pointer to a variable into which the size of the file is assigned.  If
+   it is `NULL', it is ignored.
+   If successful, the return value is true, else, it is false. */
+bool tcstatfile(const char *path, bool *isdirp, int64_t *sizep, int64_t *mtimep);
 
 
 /* Read whole data of a file.
@@ -3245,6 +3275,15 @@ char *tcwwwformencode(const TCMAP *params);
 void tcwwwformdecode(const char *str, TCMAP *params);
 
 
+/* Decode a data region in the x-www-form-urlencoded or multipart-form-data format.
+   `ptr' specifies the pointer to the data region.
+   `size' specifies the size of the data region.
+   `type' specifies the value of the content-type header.  If it is `NULL', the type is specified
+   as x-www-form-urlencoded.
+   `params' specifies a map object into which the result parameters are stored. */
+void tcwwwformdecode2(const void *ptr, int size, const char *type, TCMAP *params);
+
+
 /* Split an XML string into tags and text sections.
    `str' specifies the string.
    The return value is the list object whose elements are strings of tags or text sections.
@@ -3335,21 +3374,25 @@ void tctmplsetsep(TCTMPL *tmpl, const char *begsep, const char *endsep);
    hash variable of the record whose key is "bar" in the hash variable whose name is "foo".
    Moreover, control flow directives are also supported.  "[% IF ... %]", "[% ELSE %]", and
    "[% END %]" are conditional directives.  "[% FOREACH ... %]" and "[% END %]" are iterator
-   directives for a list object.  "[% CONF ... %]" is a configuration directive.  If the ending
-   separator of a directive is leaded by "\", the next linefeed character is ignored.  Variable
-   expansion directive needs the parameter for the variable name.  The optional parameter "DEF"
-   trailed by a string specifies the default value.  The optional parameter "ENC" trailed by a
-   string specifies the encoding format.  "URL" for the URL escape encoding, "XML" for the XML
-   escape encoding, "CSTR" for C-string escape encoding, and "JSON" for JSON escape encoding are
-   supported.  The conditional directive needs the parameter for the variable name.  If the
-   variable exists, the block to the correspondent ending directive is evaluated, else, the block
-   is ignored.  The optional parameter "EQ" trailed by a string specifies the string full
-   matching test.  The optional parameter "RX" trailed by a string specifies the regular
-   expression matching test.  The optional parameter "NOT" inverts the logical determination.
-   The iterator directive needs the parameter for the variable name of a list object.  The block
-   to the correspondent ending directive is evaluated for each element of the list.  The optional
-   parameter specifies the local variable name of each element.  The configuration directive
-   needs the parameters for the variable name and its value. */
+   directives for a list object.  "[% SET ... %]" is a session variable setting directive.
+   "[% CONF ... %]" is a configuration directive.  If the ending separator of a directive is
+   leaded by "\", the next linefeed character is ignored.  Variable expansion directive needs the
+   parameter for the variable name.  The optional parameter "DEF" trailed by a string specifies
+   the default value.  The optional parameter "ENC" trailed by a string specifies the encoding
+   format.  "URL" for the URL escape encoding, "XML" for the XML escape encoding, "CSTR" for
+   C-string escape encoding, and "JSON" for JSON escape encoding are supported.  The conditional
+   directive needs the parameter for the variable name.  If the variable exists, the block to the
+   correspondent ending directive is evaluated, else, the block is ignored.  The optional
+   parameter "EQ" trailed by a string specifies the string full matching test.  The optional
+   parameter "INC" trailed by a string specifies the string including matching test.  The
+   optional parameter "PRT" specifies the printable test.  The optional parameter "RX" trailed by
+   a string specifies the regular expression matching test.  The optional parameter "NOT" inverts
+   the logical determination.  The iterator directive needs the parameter for the variable name
+   of a list object.  The block to the correspondent ending directive is evaluated for each
+   element of the list.  The optional parameter specifies the local variable name of each
+   element.  The session variable setting directive needs the parameters for the variable name
+   and its value.  The configuration directive needs the parameters for the variable name and
+   its value. */
 void tctmplload(TCTMPL *tmpl, const char *str);
 
 
@@ -3634,8 +3677,8 @@ typedef unsigned char TCBITMAP;          /* type of a bit map object */
 
 #include <stdio.h>
 
-#define _TC_VERSION    "1.4.28"
-#define _TC_LIBVER     819
+#define _TC_VERSION    "1.4.33"
+#define _TC_LIBVER     824
 #define _TC_FORMATVER  "1.0"
 
 enum {                                   /* enumeration for error codes */
@@ -3668,7 +3711,7 @@ enum {                                   /* enumeration for error codes */
 enum {                                   /* enumeration for database type */
   TCDBTHASH,                             /* hash table */
   TCDBTBTREE,                            /* B+ tree */
-  TCDBTDSAT,                             /* Dynamic spatial approximation tree */
+  TCDBTDSAT,							 /* Dynamic spatial approximation tree */
   TCDBTFIXED,                            /* fixed-length */
   TCDBTTABLE                             /* table */
 };
@@ -3901,7 +3944,7 @@ uint64_t tcpagealign(uint64_t off);
 #else
 #define TCMALLOC(TC_res, TC_size) \
   do { \
-    if(!((TC_res) = MYMALLOC(TC_size))) tcmyfatal("out of memory 2"); \
+    if(!((TC_res) = MYMALLOC(TC_size))) tcmyfatal("out of memory"); \
   } while(false)
 #endif
 
@@ -3915,7 +3958,7 @@ uint64_t tcpagealign(uint64_t off);
 #else
 #define TCCALLOC(TC_res, TC_nmemb, TC_size) \
   do { \
-    if(!((TC_res) = MYCALLOC((TC_nmemb), (TC_size)))) tcmyfatal("out of memory 3"); \
+    if(!((TC_res) = MYCALLOC((TC_nmemb), (TC_size)))) tcmyfatal("out of memory"); \
   } while(false)
 #endif
 
@@ -3929,7 +3972,7 @@ uint64_t tcpagealign(uint64_t off);
 #else
 #define TCREALLOC(TC_res, TC_ptr, TC_size) \
   do { \
-    if(!((TC_res) = MYREALLOC((TC_ptr), (TC_size)))) tcmyfatal("out of memory 4"); \
+    if(!((TC_res) = MYREALLOC((TC_ptr), (TC_size)))) tcmyfatal("out of memory"); \
   } while(false)
 #endif
 

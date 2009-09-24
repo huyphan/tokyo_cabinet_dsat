@@ -39,6 +39,7 @@ static int runxml(int argc, char **argv);
 static int runcstr(int argc, char **argv);
 static int runucs(int argc, char **argv);
 static int runhash(int argc, char **argv);
+static int runcipher(int argc, char **argv);
 static int rundate(int argc, char **argv);
 static int runtmpl(int argc, char **argv);
 static int runconf(int argc, char **argv);
@@ -56,6 +57,7 @@ static int procxml(const char *ibuf, int isiz, bool dec, bool br);
 static int proccstr(const char *ibuf, int isiz, bool dec, bool js);
 static int procucs(const char *ibuf, int isiz, bool dec, bool un, const char *kw);
 static int prochash(const char *ibuf, int isiz, bool crc, int ch);
+static int proccipher(const char *ibuf, int isiz, const char *key);
 static int procdate(const char *str, int jl, bool wf, bool rf);
 static int proctmpl(const char *ibuf, int isiz, TCMAP *vars);
 static int procconf(int mode);
@@ -92,6 +94,8 @@ int main(int argc, char **argv){
     rv = runucs(argc, argv);
   } else if(!strcmp(argv[1], "hash")){
     rv = runhash(argc, argv);
+  } else if(!strcmp(argv[1], "cipher")){
+    rv = runcipher(argc, argv);
   } else if(!strcmp(argv[1], "date")){
     rv = rundate(argc, argv);
   } else if(!strcmp(argv[1], "tmpl")){
@@ -124,6 +128,7 @@ static void usage(void){
   fprintf(stderr, "  %s cstr [-d] [-js] [file]\n", g_progname);
   fprintf(stderr, "  %s ucs [-d] [-un] [file]\n", g_progname);
   fprintf(stderr, "  %s hash [-crc] [-ch num] [file]\n", g_progname);
+  fprintf(stderr, "  %s cipher [-key str] [file]\n", g_progname);
   fprintf(stderr, "  %s date [-ds str] [-jl num] [-wf] [-rf]\n", g_progname);
   fprintf(stderr, "  %s tmpl [-var name val] [file]\n", g_progname);
   fprintf(stderr, "  %s conf [-v|-i|-l|-p]\n", g_progname);
@@ -661,6 +666,43 @@ static int runhash(int argc, char **argv){
 }
 
 
+/* parse arguments of cipher command */
+static int runcipher(int argc, char **argv){
+  char *path = NULL;
+  char *key = NULL;
+  for(int i = 2; i < argc; i++){
+    if(!path && argv[i][0] == '-'){
+      if(!strcmp(argv[i], "-key")){
+        if(++i >= argc) usage();
+        key = argv[i];
+      } else {
+        usage();
+      }
+    } else if(!path){
+      path = argv[i];
+    } else {
+      usage();
+    }
+  }
+  char *ibuf;
+  int isiz;
+  if(path && path[0] == '@'){
+    isiz = strlen(path) - 1;
+    ibuf = tcmemdup(path + 1, isiz);
+  } else {
+    ibuf = tcreadfile(path, -1, &isiz);
+  }
+  if(!ibuf){
+    eprintf("%s: cannot open", path ? path : "(stdin)");
+    return 1;
+  }
+  int rv = proccipher(ibuf, isiz, key);
+  if(path && path[0] == '@') printf("\n");
+  tcfree(ibuf);
+  return rv;
+}
+
+
 /* parse arguments of date command */
 static int rundate(int argc, char **argv){
   char *str = NULL;
@@ -1149,6 +1191,22 @@ static int prochash(const char *ibuf, int isiz, bool crc, int ch){
     tcmd5hash(ibuf, isiz, buf);
     printf("%s\n", buf);
   }
+  return 0;
+}
+
+
+/* perform cipher command */
+static int proccipher(const char *ibuf, int isiz, const char *key){
+  char *obuf = tcmalloc(isiz + 1);
+  const char *kbuf = "";
+  int ksiz = 0;
+  if(key){
+    kbuf = key;
+    ksiz = strlen(key);
+  }
+  tcarccipher(ibuf, isiz, kbuf, ksiz, obuf);
+  fwrite(obuf, 1, isiz, stdout);
+  tcfree(obuf);
   return 0;
 }
 

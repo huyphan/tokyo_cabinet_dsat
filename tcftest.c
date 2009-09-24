@@ -81,7 +81,7 @@ int main(int argc, char **argv){
     usage();
   }
   if(rv != 0){
-    printf("FAILED:");
+    printf("FAILED: TCRNDSEED=%u PID=%d", g_randseed, (int)getpid());
     for(int i = 0; i < argc; i++){
       printf(" %s", argv[i]);
     }

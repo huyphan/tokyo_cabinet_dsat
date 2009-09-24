@@ -81,7 +81,7 @@ int main(int argc, char **argv){
     usage();
   }
   if(rv != 0){
-    printf("FAILED:");
+    printf("FAILED: TCRNDSEED=%u PID=%d", g_randseed, (int)getpid());
     for(int i = 0; i < argc; i++){
       printf(" %s", argv[i]);
     }
@@ -961,6 +961,13 @@ static int procmisc(int rnum){
         tcchidxhash(chidx, kbuf, ksiz);
       }
       tcchidxdel(chidx);
+      char kbuf[TCNUMBUFSIZ];
+      int ksiz = sprintf(kbuf, "%d", myrand(200));
+      char *enc = tcmalloc(slen + 1);
+      tcarccipher(str, slen, kbuf, ksiz, enc);
+      tcarccipher(enc, slen, kbuf, ksiz, enc);
+      if(memcmp(enc, str, slen)) err = true;
+      tcfree(enc);
       buf = tczeromap(myrand(1024*256) + 1);
       tczerounmap(buf);
     }
@@ -1213,7 +1220,7 @@ static int procmisc(int rnum){
         "{{ IF .id }}ID:{{ .id }}{{ END }}\n"
         "{{ IF .title }}Title:{{ .title }}{{ END }}\n"
         "{{ IF author }}Author:{{ author }}{{ END }}\n"
-        "{{ IF .coms }}--\n"
+        "{{ IF .coms }}{{ SET addr 'Setagaya, Tokyo' }}--\n"
         "{{ FOREACH .coms com }}{{ com.author MD5 }}: {{ com.body }}\n"
         "{{ END \\}}\n"
         "{{ END \\}}\n"
@@ -1770,23 +1777,78 @@ static int procwicked(int rnum){
       break;
     case 63:
       iputchar('+');
-      if(myrand(100) == 0) tcmpoolmalloc(mpool, 1);
+      if(myrand(100) == 0){
+        char *tptr = tcmpoolmalloc(mpool, 1);
+        switch(myrand(5)){
+        case 0:
+          tcfree(tptr);
+          tcmpoolpop(mpool, false);
+          break;
+        case 1:
+          tcmpoolpop(mpool, true);
+          break;
+        }
+      }
       break;
     case 64:
       iputchar('+');
-      if(myrand(100) == 0) tcmpoolxstrnew(mpool);
+      if(myrand(100) == 0){
+        TCXSTR *txstr = tcmpoolxstrnew(mpool);
+        switch(myrand(5)){
+        case 0:
+          tcxstrdel(txstr);
+          tcmpoolpop(mpool, false);
+          break;
+        case 1:
+          tcmpoolpop(mpool, true);
+          break;
+        }
+      }
       break;
     case 65:
       iputchar('+');
-      if(myrand(100) == 0) tcmpoollistnew(mpool);
+      if(myrand(100) == 0){
+        TCLIST *tlist = tcmpoollistnew(mpool);
+        switch(myrand(5)){
+        case 0:
+          tclistdel(tlist);
+          tcmpoolpop(mpool, false);
+          break;
+        case 1:
+          tcmpoolpop(mpool, true);
+          break;
+        }
+      }
       break;
     case 66:
       iputchar('+');
-      if(myrand(100) == 0) tcmpoolmapnew(mpool);
+      if(myrand(100) == 0){
+        TCMAP *tmap = tcmpoolmapnew(mpool);
+        switch(myrand(5)){
+        case 0:
+          tcmapdel(tmap);
+          tcmpoolpop(mpool, false);
+          break;
+        case 1:
+          tcmpoolpop(mpool, true);
+          break;
+        }
+      }
       break;
     case 67:
       iputchar('+');
-      if(myrand(100) == 0) tcmpooltreenew(mpool);
+      if(myrand(100) == 0){
+        TCTREE *ttree = tcmpooltreenew(mpool);
+        switch(myrand(5)){
+        case 0:
+          tctreedel(ttree);
+          tcmpoolpop(mpool, false);
+          break;
+        case 1:
+          tcmpoolpop(mpool, true);
+          break;
+        }
+      }
       break;
     default:
       iputchar('@');

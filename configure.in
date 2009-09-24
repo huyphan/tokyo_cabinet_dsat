@@ -7,11 +7,11 @@
 #================================================================
 
 # Package name
-AC_INIT(tokyocabinet, 1.4.28)
+AC_INIT(tokyocabinet, 1.4.33)
 
 # Package information
 MYLIBVER=8
-MYLIBREV=19
+MYLIBREV=24
 MYFORMATVER="1.0"
 
 # Targets
@@ -197,6 +197,7 @@ if test -n "$with_zlib"
 then
   MYCPPFLAGS="$MYCPPFLAGS -I$with_zlib/include"
   MYLDFLAGS="$MYLDFLAGS -L$with_zlib/lib"
+  MYRUNPATH="$MYRUNPATH:$with_zlib/lib"
   CPATH="$CPATH:$with_zlib/include"
   LIBRARY_PATH="$LIBRARY_PATH:$with_zlib/lib"
   LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$with_zlib/lib"
@@ -207,8 +208,9 @@ AC_ARG_WITH(bzip,
   AC_HELP_STRING([--with-bzip=DIR], [search DIR/include and DIR/lib for BZIP2]))
 if test -n "$with_bzip"
 then
-  MYCPPFLAGS="$MYCPPFLAGS -I$with_bzip/include"
+  MYCPPFLAGS="$MYCPPFLAGS -I$with_bzip/include"  
   MYLDFLAGS="$MYLDFLAGS -L$with_bzip/lib"
+  MYRUNPATH="$MYRUNPATH:$with_bzip/lib"
   CPATH="$CPATH:$with_bzip/include"
   LIBRARY_PATH="$LIBRARY_PATH:$with_bzip/lib"
   LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$with_bzip/lib"

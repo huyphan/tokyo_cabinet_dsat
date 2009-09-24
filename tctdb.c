@@ -43,6 +43,7 @@
 #define TDBFTSBMNUM    524287            // number of elements of full-text search bitmap
 #define TDBNUMCNTCOL   "_num"            // column name of number counting
 #define TDBCOLBUFSIZ   1024              // size of a buffer for a column value
+#define TDBNUMCOLMAX   16                // maximum number of columns of the long double
 #define TDBHINTUSIZ    256               // unit size of the hint string
 #define TDBORDRATIO    0.2               // ratio of records to use the order index
 
@@ -109,6 +110,8 @@ static bool tctdbsetindeximpl(TCTDB *tdb, const char *name, int type);
 static int64_t tctdbgenuidimpl(TCTDB *tdb, int64_t inc);
 static TCLIST *tctdbqrysearchimpl(TDBQRY *qry);
 static TCMAP *tctdbqryidxfetch(TDBQRY *qry, TDBCOND *cond, TDBIDX *idx);
+static long double tctdbatof(const char *str);
+static bool tctdbqryidxcurjumpnum(BDBCUR *cur, const char *kbuf, int ksiz, bool first);
 static bool tctdbqryonecondmatch(TDBQRY *qry, TDBCOND *cond, const char *pkbuf, int pksiz);
 static bool tctdbqryallcondmatch(TDBQRY *qry, const char *pkbuf, int pksiz);
 static bool tctdbqrycondmatch(TDBCOND *cond, const char *vbuf, int vsiz);
@@ -1020,7 +1023,7 @@ bool tctdbqryproc(TDBQRY *qry, TDBQRYPROC proc, void *op){
 }
 
 
-/* Get the hint of a query object. */
+/* Get the hint string of a query object. */
 const char *tctdbqryhint(TDBQRY *qry){
   assert(qry);
   return tcxstrptr(qry->hint);
@@ -1665,6 +1668,25 @@ int tctdbstrtoindextype(const char *str){
 }
 
 
+/* Convert a string into the meta search type number. */
+int tctdbstrtometasearcytype(const char *str){
+  assert(str);
+  int type = -1;
+  if(!tcstricmp(str, "UNION") || !tcstricmp(str, "OR")){
+    type = TDBMSUNION;
+  } else if(!tcstricmp(str, "ISECT") || !tcstricmp(str, "INTERSECTION") ||
+            !tcstricmp(str, "AND")){
+    type = TDBMSISECT;
+  } else if(!tcstricmp(str, "DIFF") || !tcstricmp(str, "DIFFERENCE") ||
+            !tcstricmp(str, "ANDNOT") || !tcstricmp(str, "NOT")){
+    type = TDBMSDIFF;
+  } else if(tcstrisnum(str)){
+    type = tcatoi(str);
+  }
+  return type;
+}
+
+
 /* Get the count of corresponding records of a query object. */
 int tctdbqrycount(TDBQRY *qry){
   assert(qry);
@@ -1672,7 +1694,7 @@ int tctdbqrycount(TDBQRY *qry){
 }
 
 
-/* Generate a keyword-in-context string from a query object. */
+/* Generate keyword-in-context strings from a query object. */
 TCLIST *tctdbqrykwic(TDBQRY *qry, TCMAP *cols, const char *name, int width, int opts){
   assert(qry && cols && width >= 0);
   TDBCOND *conds = qry->conds;
@@ -2143,8 +2165,8 @@ static char *tctdbgetonecol(TCTDB *tdb, const void *pkbuf, int pksiz,
 
 /* Add a real number to a column of a record in a table database object.
    `tdb' specifies the table database object.
-   `kbuf' specifies the pointer to the region of the primary key.
-   `ksiz' specifies the size of the region of the primary key.
+   `pkbuf' specifies the pointer to the region of the primary key.
+   `pksiz' specifies the size of the region of the primary key.
    `num' specifies the additional value.
    If successful, the return value is the summation value, else, it is Not-a-Number. */
 static double tctdbaddnumber(TCTDB *tdb, const void *pkbuf, int pksiz, double num){
@@ -2154,7 +2176,7 @@ static double tctdbaddnumber(TCTDB *tdb, const void *pkbuf, int pksiz, double nu
   TCMAP *cols = cbuf ? tcmapload(cbuf, csiz) : tcmapnew2(1);
   if(cbuf){
     const char *vbuf = tcmapget2(cols, TDBNUMCNTCOL);
-    if(vbuf) num += tcatof(vbuf);
+    if(vbuf) num += tctdbatof(vbuf);
     TCFREE(cbuf);
   }
   char numbuf[TDBCOLBUFSIZ];
@@ -3027,15 +3049,14 @@ static TCLIST *tctdbqrysearchimpl(TDBQRY *qry){
       tcxstrprintf(hint, "using an index: \"%s\" asc (NUMEQ)\n", mcond->name);
       BDBCUR *cur = tcbdbcurnew(midx->db);
       if(oname && !strcmp(oname, mcond->name)) oname = NULL;
-      int64_t xnum = tcatoi(expr);
-      char numbuf[TCNUMBUFSIZ];
-      int ksiz = sprintf(numbuf, "\x01%lld", (long long)xnum);
-      tcbdbcurjump(cur, numbuf, ksiz);
+      long double xnum = tctdbatof(expr);
+      tctdbqryidxcurjumpnum(cur, expr, esiz, true);
       bool all = oname != NULL;
       if(!all && max < INT_MAX) tcxstrprintf(hint, "limited matching: %d\n", max);
       const char *kbuf;
+      int ksiz;
       while((all || TCLISTNUM(res) < max) && (kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-        if(tcatoi(kbuf) == xnum){
+        if(tctdbatof(kbuf) == xnum){
           int vsiz;
           const char *vbuf = tcbdbcurval3(cur, &vsiz);
           int nsiz;
@@ -3057,16 +3078,16 @@ static TCLIST *tctdbqrysearchimpl(TDBQRY *qry){
     } else if(mcond->op == TDBQCNUMGT || mcond->op == TDBQCNUMGE){
       if(oname && !strcmp(oname, mcond->name) && otype == TDBQONUMDESC){
         tcxstrprintf(hint, "using an index: \"%s\" desc (NUMGT/NUMGE)\n", mcond->name);
-        int64_t xnum = tcatoi(expr);
+        long double xnum = tctdbatof(expr);
         BDBCUR *cur = tcbdbcurnew(midx->db);
         tcbdbcurlast(cur);
         if(max < INT_MAX) tcxstrprintf(hint, "limited matching: %d\n", max);
         const char *kbuf;
         int ksiz;
         while(TCLISTNUM(res) < max && (kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-          int64_t knum = tcatoi(kbuf);
+          long double knum = tctdbatof(kbuf);
           if(knum < xnum) break;
-          if(mcond->op == TDBQCNUMGE || tcatoi(kbuf) > xnum){
+          if(knum > xnum || (knum >= xnum && mcond->op == TDBQCNUMGE)){
             int vsiz;
             const char *vbuf = tcbdbcurval3(cur, &vsiz);
             int nsiz;
@@ -3086,16 +3107,16 @@ static TCLIST *tctdbqrysearchimpl(TDBQRY *qry){
         oname = NULL;
       } else {
         tcxstrprintf(hint, "using an index: \"%s\" asc (NUMGT/NUMGE)\n", mcond->name);
-        int64_t xnum = tcatoi(expr);
+        long double xnum = tctdbatof(expr);
         BDBCUR *cur = tcbdbcurnew(midx->db);
-        char numbuf[TCNUMBUFSIZ];
-        int ksiz = sprintf(numbuf, "\x01%lld", (long long)xnum);
-        tcbdbcurjump(cur, numbuf, ksiz);
+        tctdbqryidxcurjumpnum(cur, expr, esiz, true);
         bool all = oname && (strcmp(oname, mcond->name) || otype != TDBQONUMASC);
         if(!all && max < INT_MAX) tcxstrprintf(hint, "limited matching: %d\n", max);
         const char *kbuf;
+        int ksiz;
         while((all || TCLISTNUM(res) < max) && (kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-          if(mcond->op == TDBQCNUMGE || tcatoi(kbuf) > xnum){
+          long double knum = tctdbatof(kbuf);
+          if(knum > xnum || (knum >= xnum && mcond->op == TDBQCNUMGE)){
             int vsiz;
             const char *vbuf = tcbdbcurval3(cur, &vsiz);
             int nsiz;
@@ -3117,16 +3138,16 @@ static TCLIST *tctdbqrysearchimpl(TDBQRY *qry){
     } else if(mcond->op == TDBQCNUMLT || mcond->op == TDBQCNUMLE){
       if(oname && !strcmp(oname, mcond->name) && otype == TDBQONUMASC){
         tcxstrprintf(hint, "using an index: \"%s\" asc (NUMLT/NUMLE)\n", mcond->name);
-        int64_t xnum = tcatoi(expr);
+        long double xnum = tctdbatof(expr);
         BDBCUR *cur = tcbdbcurnew(midx->db);
         tcbdbcurfirst(cur);
         if(max < INT_MAX) tcxstrprintf(hint, "limited matching: %d\n", max);
         const char *kbuf;
         int ksiz;
         while(TCLISTNUM(res) < max && (kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-          int64_t knum = tcatoi(kbuf);
+          long double knum = tctdbatof(kbuf);
           if(knum > xnum) break;
-          if(mcond->op == TDBQCNUMLE || tcatoi(kbuf) < xnum){
+          if(knum < xnum || (knum <= xnum && mcond->op == TDBQCNUMLE)){
             int vsiz;
             const char *vbuf = tcbdbcurval3(cur, &vsiz);
             int nsiz;
@@ -3146,16 +3167,16 @@ static TCLIST *tctdbqrysearchimpl(TDBQRY *qry){
         oname = NULL;
       } else {
         tcxstrprintf(hint, "using an index: \"%s\" desc (NUMLT/NUMLE)\n", mcond->name);
-        int64_t xnum = tcatoi(expr);
+        long double xnum = tctdbatof(expr);
         BDBCUR *cur = tcbdbcurnew(midx->db);
-        char numbuf[TCNUMBUFSIZ];
-        int ksiz = sprintf(numbuf, "\x7f%lld", (long long)xnum);
-        tcbdbcurjumpback(cur, numbuf, ksiz);
+        tctdbqryidxcurjumpnum(cur, expr, esiz, false);
         bool all = oname && (strcmp(oname, mcond->name) || otype != TDBQONUMDESC);
         if(!all && max < INT_MAX) tcxstrprintf(hint, "limited matching: %d\n", max);
         const char *kbuf;
+        int ksiz;
         while((all || TCLISTNUM(res) < max) && (kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-          if(mcond->op == TDBQCNUMLE || tcatoi(kbuf) < xnum){
+          long double knum = tctdbatof(kbuf);
+          if(knum < xnum || (knum <= xnum && mcond->op == TDBQCNUMLE)){
             int vsiz;
             const char *vbuf = tcbdbcurval3(cur, &vsiz);
             int nsiz;
@@ -3183,27 +3204,29 @@ static TCLIST *tctdbqrysearchimpl(TDBQRY *qry){
       while(*pv != '\0' && *pv != ' ' && *pv != ','){
         pv++;
       }
+      esiz = pv - expr;
       if(*pv != ' ' && *pv != ',') pv = " ";
       pv++;
       while(*pv == ' ' || *pv == ','){
         pv++;
       }
-      int64_t lower = tcatoi(expr);
-      int64_t upper = tcatoi(pv);
+      long double lower = tctdbatof(expr);
+      long double upper = tctdbatof(pv);
       if(lower > upper){
-        int64_t swap = lower;
+        expr = pv;
+        esiz = strlen(expr);
+        long double swap = lower;
         lower = upper;
         upper = swap;
       }
       BDBCUR *cur = tcbdbcurnew(midx->db);
-      char numbuf[TCNUMBUFSIZ];
-      int ksiz = sprintf(numbuf, "\x01%lld", (long long)lower);
-      tcbdbcurjump(cur, numbuf, ksiz);
+      tctdbqryidxcurjumpnum(cur, expr, esiz, true);
       bool all = oname && (strcmp(oname, mcond->name) || otype != TDBQONUMASC);
       if(!all && max < INT_MAX) tcxstrprintf(hint, "limited matching: %d\n", max);
       const char *kbuf;
+      int ksiz;
       while((all || TCLISTNUM(res) < max) && (kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-        if(tcatoi(kbuf) > upper) break;
+        if(tctdbatof(kbuf) > upper) break;
         int vsiz;
         const char *vbuf = tcbdbcurval3(cur, &vsiz);
         int nsiz;
@@ -3233,7 +3256,7 @@ static TCLIST *tctdbqrysearchimpl(TDBQRY *qry){
       TCLIST *tokens = tcstrsplit(expr, "\t\n\r ,");
       tclistsortex(tokens, tdbcmppkeynumasc);
       for(int i = 1; i < TCLISTNUM(tokens); i++){
-        if(tcatoi(TCLISTVALPTR(tokens, i)) == tcatoi(TCLISTVALPTR(tokens, i - 1))){
+        if(tctdbatof(TCLISTVALPTR(tokens, i)) == tctdbatof(TCLISTVALPTR(tokens, i - 1))){
           TCFREE(tclistremove2(tokens, i));
           i--;
         }
@@ -3254,13 +3277,12 @@ static TCLIST *tctdbqrysearchimpl(TDBQRY *qry){
         int tsiz;
         TCLISTVAL(token, tokens, i, tsiz);
         if(tsiz < 1) continue;
-        int64_t xnum = tcatoi(token);
-        char numbuf[TCNUMBUFSIZ];
-        int ksiz = sprintf(numbuf, "\x01%lld", (long long)xnum);
-        tcbdbcurjump(cur, numbuf, ksiz);
+        long double xnum = tctdbatof(token);
+        tctdbqryidxcurjumpnum(cur, token, tsiz, true);
         const char *kbuf;
+        int ksiz;
         while((all || TCLISTNUM(res) < max) && (kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-          if(tcatoi(kbuf) == xnum){
+          if(tctdbatof(kbuf) == xnum){
             int vsiz;
             const char *vbuf = tcbdbcurval3(cur, &vsiz);
             int nsiz;
@@ -3801,14 +3823,13 @@ static TCMAP *tctdbqryidxfetch(TDBQRY *qry, TDBCOND *cond, TDBIDX *idx){
     tclistdel(tokens);
   } else if(cond->op == TDBQCNUMEQ){
     tcxstrprintf(hint, "using an auxiliary index: \"%s\" asc (NUMEQ)\n", cond->name);
-    int64_t xnum = tcatoi(expr);
+    long double xnum = tctdbatof(expr);
     BDBCUR *cur = tcbdbcurnew(idx->db);
-    char numbuf[TCNUMBUFSIZ];
-    int ksiz = sprintf(numbuf, "\x01%lld", (long long)xnum);
-    tcbdbcurjump(cur, numbuf, ksiz);
+    tctdbqryidxcurjumpnum(cur, expr, esiz, true);
     const char *kbuf;
+    int ksiz;
     while((kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-      if(tcatoi(kbuf) == xnum){
+      if(tctdbatof(kbuf) == xnum){
         int vsiz;
         const char *vbuf = tcbdbcurval3(cur, &vsiz);
         tcmapputkeep(nmap, vbuf, vsiz, "", 0);
@@ -3820,14 +3841,14 @@ static TCMAP *tctdbqryidxfetch(TDBQRY *qry, TDBCOND *cond, TDBIDX *idx){
     tcbdbcurdel(cur);
   } else if(cond->op == TDBQCNUMGT || cond->op == TDBQCNUMGE){
     tcxstrprintf(hint, "using an auxiliary index: \"%s\" asc (NUMGT/NUMGE)\n", cond->name);
-    int64_t xnum = tcatoi(expr);
+    long double xnum = tctdbatof(expr);
     BDBCUR *cur = tcbdbcurnew(idx->db);
-    char numbuf[TCNUMBUFSIZ];
-    int ksiz = sprintf(numbuf, "\x01%lld", (long long)xnum);
-    tcbdbcurjump(cur, numbuf, ksiz);
+    tctdbqryidxcurjumpnum(cur, expr, esiz, true);
     const char *kbuf;
+    int ksiz;
     while((kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-      if(cond->op == TDBQCNUMGE || tcatoi(kbuf) > xnum){
+      long double knum = tctdbatof(kbuf);
+      if(knum > xnum || (knum >= xnum && cond->op == TDBQCNUMGE)){
         int vsiz;
         const char *vbuf = tcbdbcurval3(cur, &vsiz);
         tcmapputkeep(nmap, vbuf, vsiz, "", 0);
@@ -3837,14 +3858,14 @@ static TCMAP *tctdbqryidxfetch(TDBQRY *qry, TDBCOND *cond, TDBIDX *idx){
     tcbdbcurdel(cur);
   } else if(cond->op == TDBQCNUMLT || cond->op == TDBQCNUMLE){
     tcxstrprintf(hint, "using an auxiliary index: \"%s\" desc (NUMLT/NUMLE)\n", cond->name);
-    int64_t xnum = tcatoi(expr);
+    long double xnum = tctdbatof(expr);
     BDBCUR *cur = tcbdbcurnew(idx->db);
-    char numbuf[TCNUMBUFSIZ];
-    int ksiz = sprintf(numbuf, "\x7f%lld", (long long)xnum);
-    tcbdbcurjumpback(cur, numbuf, ksiz);
+    tctdbqryidxcurjumpnum(cur, expr, esiz, false);
     const char *kbuf;
+    int ksiz;
     while((kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-      if(cond->op == TDBQCNUMLE || tcatoi(kbuf) < xnum){
+      long double knum = tctdbatof(kbuf);
+      if(knum < xnum || (knum <= xnum && cond->op == TDBQCNUMLE)){
         int vsiz;
         const char *vbuf = tcbdbcurval3(cur, &vsiz);
         tcmapputkeep(nmap, vbuf, vsiz, "", 0);
@@ -3861,25 +3882,27 @@ static TCMAP *tctdbqryidxfetch(TDBQRY *qry, TDBCOND *cond, TDBIDX *idx){
     while(*pv != '\0' && *pv != ' ' && *pv != ','){
       pv++;
     }
+    esiz = pv - expr;
     if(*pv != ' ' && *pv != ',') pv = " ";
     pv++;
     while(*pv == ' ' || *pv == ','){
       pv++;
     }
-    int64_t lower = tcatoi(expr);
-    int64_t upper = tcatoi(pv);
+    long double lower = tctdbatof(expr);
+    long double upper = tctdbatof(pv);
     if(lower > upper){
-      int64_t swap = lower;
+      expr = pv;
+      esiz = strlen(expr);
+      long double swap = lower;
       lower = upper;
       upper = swap;
     }
     BDBCUR *cur = tcbdbcurnew(idx->db);
-    char numbuf[TCNUMBUFSIZ];
-    int ksiz = sprintf(numbuf, "\x01%lld", (long long)lower);
-    tcbdbcurjump(cur, numbuf, ksiz);
+    tctdbqryidxcurjumpnum(cur, expr, esiz, true);
     const char *kbuf;
+    int ksiz;
     while((kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-      if(tcatoi(kbuf) > upper) break;
+      if(tctdbatof(kbuf) > upper) break;
       int vsiz;
       const char *vbuf = tcbdbcurval3(cur, &vsiz);
       tcmapputkeep(nmap, vbuf, vsiz, "", 0);
@@ -3892,7 +3915,7 @@ static TCMAP *tctdbqryidxfetch(TDBQRY *qry, TDBCOND *cond, TDBIDX *idx){
     TCLIST *tokens = tcstrsplit(expr, "\t\n\r ,");
     tclistsortex(tokens, tdbcmppkeynumasc);
     for(int i = 1; i < TCLISTNUM(tokens); i++){
-      if(tcatoi(TCLISTVALPTR(tokens, i)) == tcatoi(TCLISTVALPTR(tokens, i - 1))){
+      if(tctdbatof(TCLISTVALPTR(tokens, i)) == tctdbatof(TCLISTVALPTR(tokens, i - 1))){
         TCFREE(tclistremove2(tokens, i));
         i--;
       }
@@ -3903,13 +3926,12 @@ static TCMAP *tctdbqryidxfetch(TDBQRY *qry, TDBCOND *cond, TDBIDX *idx){
       int tsiz;
       TCLISTVAL(token, tokens, i, tsiz);
       if(tsiz < 1) continue;
-      int64_t xnum = tcatoi(token);
-      char numbuf[TCNUMBUFSIZ];
-      int ksiz = sprintf(numbuf, "\x01%lld", (long long)xnum);
-      tcbdbcurjump(cur, numbuf, ksiz);
+      long double xnum = tctdbatof(token);
+      tctdbqryidxcurjumpnum(cur, token, tsiz, true);
       const char *kbuf;
+      int ksiz;
       while((kbuf = tcbdbcurkey3(cur, &ksiz)) != NULL){
-        if(tcatoi(kbuf) == xnum){
+        if(tctdbatof(kbuf) == xnum){
           int vsiz;
           const char *vbuf = tcbdbcurval3(cur, &vsiz);
           tcmapputkeep(nmap, vbuf, vsiz, "", 0);
@@ -3942,6 +3964,75 @@ static TCMAP *tctdbqryidxfetch(TDBQRY *qry, TDBCOND *cond, TDBIDX *idx){
   }
   tcxstrprintf(hint, "auxiliary result set size: %lld\n", (long long)TCMAPRNUM(nmap));
   return nmap;
+}
+
+
+/* Convert a string to a real number.
+   `str' specifies the string.
+   The return value is the real number. */
+static long double tctdbatof(const char *str){
+  assert(str);
+  while(*str > '\0' && *str <= ' '){
+    str++;
+  }
+  int sign = 1;
+  if(*str == '-'){
+    str++;
+    sign = -1;
+  } else if(*str == '+'){
+    str++;
+  }
+  if(tcstrifwm(str, "inf")) return HUGE_VALL * sign;
+  if(tcstrifwm(str, "nan")) return nanl("");
+  long double num = 0;
+  int col = 0;
+  while(*str != '\0'){
+    if(*str < '0' || *str > '9') break;
+    num = num * 10 + *str - '0';
+    str++;
+    if(num > 0) col++;
+  }
+  if(*str == '.'){
+    str++;
+    long double fract = 0.0;
+    long double base = 10;
+    while(col < TDBNUMCOLMAX && *str != '\0'){
+      if(*str < '0' || *str > '9') break;
+      fract += (*str - '0') / base;
+      str++;
+      col++;
+      base *= 10;
+    }
+    num += fract;
+  }
+  return num * sign;
+}
+
+
+/* Jump a cursor to the record of a key.
+   `cur' specifies the cursor object.
+   `expr' specifies the expression.
+   `esiz' specifies the size of the expression.
+   `first' specifies whether to jump the first candidate.
+   If successful, the return value is true, else, it is false. */
+static bool tctdbqryidxcurjumpnum(BDBCUR *cur, const char *expr, int esiz, bool first){
+  assert(cur && expr && esiz >= 0);
+  char stack[TCNUMBUFSIZ], *rbuf;
+  if(esiz < sizeof(stack)){
+    rbuf = stack;
+  } else {
+    TCMALLOC(rbuf, esiz + 1);
+  }
+  rbuf[0] = first ? 0x00 : 0x7f;
+  memcpy(rbuf + 1, expr, esiz);
+  bool err = false;
+  if(first){
+    if(!tcbdbcurjump(cur, rbuf, esiz + 1)) err = true;
+  } else {
+    if(!tcbdbcurjumpback(cur, rbuf, esiz + 1)) err = true;
+  }
+  if(rbuf != stack) TCFREE(rbuf);
+  return !err;
 }
 
 
@@ -4050,19 +4141,19 @@ static bool tctdbqrycondmatch(TDBCOND *cond, const char *vbuf, int vsiz){
     hit = cond->regex && regexec(cond->regex, vbuf, 0, NULL, 0) == 0;
     break;
   case TDBQCNUMEQ:
-    hit = tcatoi(vbuf) == tcatoi(cond->expr);
+    hit = tctdbatof(vbuf) == tctdbatof(cond->expr);
     break;
   case TDBQCNUMGT:
-    hit = tcatoi(vbuf) > tcatoi(cond->expr);
+    hit = tctdbatof(vbuf) > tctdbatof(cond->expr);
     break;
   case TDBQCNUMGE:
-    hit = tcatoi(vbuf) >= tcatoi(cond->expr);
+    hit = tctdbatof(vbuf) >= tctdbatof(cond->expr);
     break;
   case TDBQCNUMLT:
-    hit = tcatoi(vbuf) < tcatoi(cond->expr);
+    hit = tctdbatof(vbuf) < tctdbatof(cond->expr);
     break;
   case TDBQCNUMLE:
-    hit = tcatoi(vbuf) <= tcatoi(cond->expr);
+    hit = tctdbatof(vbuf) <= tctdbatof(cond->expr);
     break;
   case TDBQCNUMBT:
     hit = tctdbqrycondchecknumbt(vbuf, cond->expr);
@@ -4209,11 +4300,11 @@ static bool tctdbqrycondchecknumbt(const char *vbuf, const char *expr){
   while(*pv == ' ' || *pv == ','){
     pv++;
   }
-  int64_t val = tcatoi(vbuf);
-  int64_t lower = tcatoi(expr);
-  int64_t upper = tcatoi(pv);
+  long double val = tctdbatof(vbuf);
+  long double lower = tctdbatof(expr);
+  long double upper = tctdbatof(pv);
   if(lower > upper){
-    int64_t swap = lower;
+    long double swap = lower;
     lower = upper;
     upper = swap;
   }
@@ -4227,7 +4318,7 @@ static bool tctdbqrycondchecknumbt(const char *vbuf, const char *expr){
    If they matches, the return value is true, else it is false. */
 static bool tctdbqrycondchecknumoreq(const char *vbuf, const char *expr){
   assert(vbuf && expr);
-  int64_t vnum = tcatoi(vbuf);
+  long double vnum = tctdbatof(vbuf);
   const char *sp = expr;
   while(*sp != '\0'){
     while(*sp == ' ' || *sp == ','){
@@ -4237,7 +4328,7 @@ static bool tctdbqrycondchecknumoreq(const char *vbuf, const char *expr){
     while(*ep != '\0' && *ep != ' ' && *ep != ','){
       ep++;
     }
-    if(ep > sp && vnum == tcatoi(sp)) return true;
+    if(ep > sp && vnum == tctdbatof(sp)) return true;
     sp = ep;
   }
   return false;
@@ -4368,8 +4459,8 @@ static int tdbcmpsortkeynumasc(const TDBSORTKEY *a, const TDBSORTKEY *b){
     if(!a->vbuf) return 0;
     return -1;
   }
-  int64_t anum = tcatoi(a->vbuf);
-  int64_t bnum = tcatoi(b->vbuf);
+  long double anum = tctdbatof(a->vbuf);
+  long double bnum = tctdbatof(b->vbuf);
   if(anum < bnum) return -1;
   if(anum > bnum) return 1;
   return 0;
@@ -4390,8 +4481,8 @@ static int tdbcmpsortkeynumdesc(const TDBSORTKEY *a, const TDBSORTKEY *b){
     if(!a->vbuf) return 0;
     return -1;
   }
-  int64_t anum = tcatoi(a->vbuf);
-  int64_t bnum = tcatoi(b->vbuf);
+  long double anum = tctdbatof(a->vbuf);
+  long double bnum = tctdbatof(b->vbuf);
   if(anum < bnum) return 1;
   if(anum > bnum) return -1;
   return 0;
@@ -5235,14 +5326,18 @@ static void tctdbidxgetbyftsunion(TDBIDX *idx, const TCLIST *tokens, bool sign,
       TCMALLOC(socrs, TDBFTSOCRUNIT * sizeof(*socrs));
       int sonum = 0;
       int soanum = TDBFTSOCRUNIT;
+      int sobase = 0;
       TDBFTSNUMOCR *nocrs;
       TCMALLOC(nocrs, TDBFTSOCRUNIT * sizeof(*nocrs));
       int nonum = 0;
       int noanum = TDBFTSOCRUNIT;
+      int nobase = 0;
       TCBITMAP *pkmap = TCBITMAPNEW(TDBFTSBMNUM);
       char token[TDBIDXQGUNIT*3+1];
       uint16_t seq = 0;
       for(int j = 0; j < anum; j += TDBIDXQGUNIT){
+        sobase = sonum;
+        nobase = nonum;
         int diff = anum - j - TDBIDXQGUNIT;
         if(diff < 0){
           j += diff;
@@ -5388,29 +5483,31 @@ static void tctdbidxgetbyftsunion(TDBIDX *idx, const TCLIST *tokens, bool sign,
           }
         }
         seq++;
+        if(sonum <= sobase && nonum <= nobase){
+          sonum = 0;
+          nonum = 0;
+          break;
+        }
       }
       TCBITMAPDEL(pkmap);
       if(seq > 1){
         if(sonum > UINT16_MAX){
           int flnum = sonum * 16 + 1;
           TCBITMAP *flmap = TCBITMAPNEW(flnum);
-          int tseq = seq - 1;
-          for(int j = 0; j < sonum; j++){
+          for(int j = sobase; j < sonum; j++){
             TDBFTSSTROCR *ocr = socrs + j;
-            if(ocr->seq < tseq) continue;
-            uint32_t hash = (((uint32_t)socrs[j].off << 16) | socrs[j].hash) % flnum;
+            uint32_t hash = (((uint32_t)ocr->off << 16) | ocr->hash) % flnum;
             TCBITMAPON(flmap, hash);
           }
           int wi = 0;
-          for(int j = 0; j < sonum; j++){
+          for(int j = 0; j < sobase; j++){
             TDBFTSSTROCR *ocr = socrs + j;
-            if(ocr->seq < tseq){
-              int rem = (seq - ocr->seq - 1) * TDBIDXQGUNIT;
-              uint32_t hash = (((uint32_t)(socrs[j].off + rem) << 16) | socrs[j].hash) % flnum;
-              if(TCBITMAPCHECK(flmap, hash)) socrs[wi++] = *ocr;
-            } else {
-              socrs[wi++] = *ocr;
-            }
+            int rem = (seq - ocr->seq - 1) * TDBIDXQGUNIT;
+            uint32_t hash = (((uint32_t)(ocr->off + rem) << 16) | ocr->hash) % flnum;
+            if(TCBITMAPCHECK(flmap, hash)) socrs[wi++] = *ocr;
+          }
+          for(int j = sobase; j < sonum; j++){
+            socrs[wi++] = socrs[j];
           }
           sonum = wi;
           TCBITMAPDEL(flmap);
@@ -5418,8 +5515,8 @@ static void tctdbidxgetbyftsunion(TDBIDX *idx, const TCLIST *tokens, bool sign,
         if(sonum > UINT16_MAX * 2){
           TDBFTSSTROCR *rocrs;
           TCMALLOC(rocrs, sizeof(*rocrs) * sonum);
-          uint32_t counts[UINT16_MAX+1];
-          memset(counts, 0, sizeof(counts));
+          uint32_t *counts;
+          TCCALLOC(counts, sizeof(*counts), (UINT16_MAX + 1));
           for(int j = 0; j < sonum; j++){
             counts[socrs[j].hash]++;
           }
@@ -5437,6 +5534,7 @@ static void tctdbidxgetbyftsunion(TDBIDX *idx, const TCLIST *tokens, bool sign,
           int num = sonum - counts[UINT16_MAX];
           if(num > 1) qsort(rocrs + counts[UINT16_MAX], num, sizeof(*rocrs),
                             (int (*)(const void *, const void *))tctdbidxftscmpstrocr);
+          TCFREE(counts);
           TCFREE(socrs);
           socrs = rocrs;
         } else if(sonum > 1){
@@ -5446,23 +5544,20 @@ static void tctdbidxgetbyftsunion(TDBIDX *idx, const TCLIST *tokens, bool sign,
         if(nonum > UINT16_MAX){
           int flnum = nonum * 16 + 1;
           TCBITMAP *flmap = TCBITMAPNEW(flnum);
-          int tseq = seq - 1;
-          for(int j = 0; j < nonum; j++){
+          for(int j = nobase; j < nonum; j++){
             TDBFTSNUMOCR *ocr = nocrs + j;
-            if(ocr->seq < tseq) continue;
-            uint32_t hash = (((uint32_t)nocrs[j].off << 16) | nocrs[j].hash) % flnum;
+            uint32_t hash = (((uint32_t)ocr->off << 16) | ocr->hash) % flnum;
             TCBITMAPON(flmap, hash);
           }
           int wi = 0;
-          for(int j = 0; j < nonum; j++){
+          for(int j = 0; j < nobase; j++){
             TDBFTSNUMOCR *ocr = nocrs + j;
-            if(ocr->seq < tseq){
-              int rem = (seq - ocr->seq - 1) * TDBIDXQGUNIT;
-              uint32_t hash = (((uint32_t)(nocrs[j].off + rem) << 16) | nocrs[j].hash) % flnum;
-              if(TCBITMAPCHECK(flmap, hash)) nocrs[wi++] = *ocr;
-            } else {
-              nocrs[wi++] = *ocr;
-            }
+            int rem = (seq - ocr->seq - 1) * TDBIDXQGUNIT;
+            uint32_t hash = (((uint32_t)(ocr->off + rem) << 16) | ocr->hash) % flnum;
+            if(TCBITMAPCHECK(flmap, hash)) nocrs[wi++] = *ocr;
+          }
+          for(int j = nobase; j < nonum; j++){
+            nocrs[wi++] = nocrs[j];
           }
           nonum = wi;
           TCBITMAPDEL(flmap);
@@ -5470,8 +5565,8 @@ static void tctdbidxgetbyftsunion(TDBIDX *idx, const TCLIST *tokens, bool sign,
         if(nonum > UINT16_MAX * 2){
           TDBFTSNUMOCR *rocrs;
           TCMALLOC(rocrs, sizeof(*rocrs) * nonum);
-          uint32_t counts[UINT16_MAX+1];
-          memset(counts, 0, sizeof(counts));
+          uint32_t *counts;
+          TCCALLOC(counts, sizeof(*counts), (UINT16_MAX + 1));
           for(int j = 0; j < nonum; j++){
             counts[nocrs[j].hash]++;
           }
@@ -5489,6 +5584,7 @@ static void tctdbidxgetbyftsunion(TDBIDX *idx, const TCLIST *tokens, bool sign,
           int num = nonum - counts[UINT16_MAX];
           if(num > 1) qsort(rocrs + counts[UINT16_MAX], num, sizeof(*rocrs),
                             (int (*)(const void *, const void *))tctdbidxftscmpnumocr);
+          TCFREE(counts);
           TCFREE(nocrs);
           nocrs = rocrs;
         } else if(nonum > 1){

@@ -83,7 +83,7 @@ int main(int argc, char **argv){
     usage();
   }
   if(rv != 0){
-    printf("FAILED:");
+    printf("FAILED: TCRNDSEED=%u PID=%d", g_randseed, (int)getpid());
     for(int i = 0; i < argc; i++){
       printf(" %s", argv[i]);
     }
@@ -137,7 +137,7 @@ static void eprint(TCTDB *tdb, int line, const char *func){
   const char *path = tctdbpath(tdb);
   int ecode = tctdbecode(tdb);
   fprintf(stderr, "%s: %s: %d: %s: error: %d: %s\n",
-          g_progname, path ? path : "-", __LINE__, func, ecode, tctdberrmsg(ecode));
+          g_progname, path ? path : "-", line, func, ecode, tctdberrmsg(ecode));
 }
 
 
@@ -654,7 +654,11 @@ static int procwrite(const char *path, int rnum, int bnum, int apow, int fpow,
     char vbuf[RECBUFSIZ*5];
     int vsiz = sprintf(vbuf, "%d", id);
     tcmapput(cols, "str", 3, vbuf, vsiz);
-    vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    if(myrand(3) == 0){
+      vsiz = sprintf(vbuf, "%.2f", (myrand(i * 100) + 1) / 100.0);
+    } else {
+      vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    }
     tcmapput(cols, "num", 3, vbuf, vsiz);
     vsiz = sprintf(vbuf, "%d", myrand(32) + 1);
     tcmapput(cols, "type", 4, vbuf, vsiz);
@@ -898,7 +902,11 @@ static int procrcat(const char *path, int rnum, int bnum, int apow, int fpow,
     char vbuf[RECBUFSIZ*5];
     int vsiz = sprintf(vbuf, "%d", id);
     tcmapput(cols, "str", 3, vbuf, vsiz);
-    vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    if(myrand(3) == 0){
+      vsiz = sprintf(vbuf, "%.2f", (myrand(i * 100) + 1) / 100.0);
+    } else {
+      vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    }
     tcmapput(cols, "num", 3, vbuf, vsiz);
     vsiz = sprintf(vbuf, "%d", myrand(32) + 1);
     tcmapput(cols, "type", 4, vbuf, vsiz);
@@ -1111,7 +1119,11 @@ static int procmisc(const char *path, int rnum, bool mt, int opts, int omode){
     char vbuf[RECBUFSIZ*5];
     int vsiz = sprintf(vbuf, "%d", id);
     tcmapput(cols, "str", 3, vbuf, vsiz);
-    vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    if(myrand(3) == 0){
+      vsiz = sprintf(vbuf, "%.2f", (myrand(i * 100) + 1) / 100.0);
+    } else {
+      vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    }
     tcmapput(cols, "num", 3, vbuf, vsiz);
     vsiz = sprintf(vbuf, "%d", myrand(32) + 1);
     tcmapput(cols, "type", 4, vbuf, vsiz);
@@ -1273,7 +1285,11 @@ static int procmisc(const char *path, int rnum, bool mt, int opts, int omode){
           if(myrand(20) == 0) op |= TDBQCNOIDX;
           char expr[RECBUFSIZ*3];
           char *wp = expr;
-          wp += sprintf(expr, "%d", myrand(i));
+          if(myrand(3) == 0){
+            wp += sprintf(expr, "%f", myrand(i * 100) / 100.0);
+          } else {
+            wp += sprintf(expr, "%d", myrand(i));
+          }
           if(myrand(10) == 0) wp += sprintf(wp, ",%d", myrand(i));
           if(myrand(10) == 0) wp += sprintf(wp, ",%d", myrand(i));
           tctdbqryaddcond(qry, name, op, expr);
@@ -1302,6 +1318,9 @@ static int procmisc(const char *path, int rnum, bool mt, int opts, int omode){
             TCLIST *texts = tctdbqrykwic(qrys[0], cols, NULL, myrand(10), TCKWNOOVER);
             tclistdel(texts);
             tcmapdel(cols);
+          } else {
+            eprint(tdb, __LINE__, "tctdbget");
+            err = true;
           }
         }
       }
@@ -1425,7 +1444,11 @@ static int procmisc(const char *path, int rnum, bool mt, int opts, int omode){
       if(myrand(10) == 0) op = ftsops[myrand(sizeof(ftsops) / sizeof(*ftsops))];
       char expr[RECBUFSIZ*3];
       char *wp = expr;
-      wp += sprintf(expr, "%d", myrand(i));
+      if(myrand(3) == 0){
+        wp += sprintf(expr, "%f", myrand(i * 100) / 100.0);
+      } else {
+        wp += sprintf(expr, "%d", myrand(i));
+      }
       if(myrand(10) == 0) wp += sprintf(wp, ",%d", myrand(i));
       if(myrand(10) == 0) wp += sprintf(wp, ",%d", myrand(i));
       tctdbqryaddcond(myqry, name, op | (myrand(2) == 0 ? TDBQCNOIDX : 0), expr);
@@ -1691,7 +1714,11 @@ static int procwicked(const char *path, int rnum, bool mt, int opts, int omode){
     char vbuf[RECBUFSIZ*5];
     int vsiz = sprintf(vbuf, "%d", id);
     tcmapput(cols, "str", 3, vbuf, vsiz);
-    vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    if(myrand(3) == 0){
+      vsiz = sprintf(vbuf, "%.2f", (myrand(i * 100) + 1) / 100.0);
+    } else {
+      vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    }
     tcmapput(cols, "num", 3, vbuf, vsiz);
     vsiz = sprintf(vbuf, "%d", myrand(32) + 1);
     tcmapput(cols, "type", 4, vbuf, vsiz);
@@ -1931,7 +1958,11 @@ static int procwicked(const char *path, int rnum, bool mt, int opts, int omode){
           if(myrand(20) == 0) op |= TDBQCNOIDX;
           char expr[RECBUFSIZ*3];
           char *wp = expr;
-          wp += sprintf(expr, "%d", myrand(i));
+          if(myrand(3) == 0){
+            wp += sprintf(expr, "%f", myrand(i * 100) / 100.0);
+          } else {
+            wp += sprintf(expr, "%d", myrand(i));
+          }
           if(myrand(10) == 0) wp += sprintf(wp, ",%d", myrand(i));
           if(myrand(10) == 0) wp += sprintf(wp, ",%d", myrand(i));
           tctdbqryaddcond(qry, name, op, expr);

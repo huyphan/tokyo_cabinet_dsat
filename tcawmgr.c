@@ -174,52 +174,7 @@ static void readparameters(TCMAP *params){
     buf = tcstrdup(rp);
     len = strlen(buf);
   }
-  if(buf && len > 0){
-    if((rp = getenv("CONTENT_TYPE")) != NULL && tcstrfwm(rp, "multipart/form-data") &&
-       (rp = strstr(rp, "boundary=")) != NULL){
-      rp += 9;
-      if(*rp == '"') rp++;
-      char bstr[strlen(rp)+1];
-      strcpy(bstr, rp);
-      char *wp = strchr(bstr, ';');
-      if(wp) *wp = '\0';
-      wp = strchr(bstr, '"');
-      if(wp) *wp = '\0';
-      TCLIST *parts = tcmimeparts(buf, len, bstr);
-      int pnum = tclistnum(parts);
-      for(int i = 0; i < pnum; i++){
-        int psiz;
-        const char *part = tclistval(parts, i, &psiz);
-        TCMAP *hmap = tcmapnew2(MINIBNUM);
-        int bsiz;
-        char *body = tcmimebreak(part, psiz, hmap, &bsiz);
-        int nsiz;
-        const char *name = tcmapget(hmap, "NAME", 4, &nsiz);
-        if(name){
-          tcmapput(params, name, nsiz, body, bsiz);
-          const char *fname = tcmapget2(hmap, "FILENAME");
-          if(fname){
-            if(*fname == '/'){
-              fname = strrchr(fname, '/') + 1;
-            } else if(((*fname >= 'a' && *fname <= 'z') || (*fname >= 'A' && *fname <= 'Z')) &&
-                      fname[1] == ':' && fname[2] == '\\'){
-              fname = strrchr(fname, '\\') + 1;
-            }
-            if(*fname != '\0'){
-              char key[nsiz+10];
-              sprintf(key, "%s_filename", name);
-              tcmapput2(params, key, fname);
-            }
-          }
-        }
-        tcfree(body);
-        tcmapdel(hmap);
-      }
-      tclistdel(parts);
-    } else {
-      tcwwwformdecode(buf, params);
-    }
-  }
+  if(buf && len > 0) tcwwwformdecode2(buf, len, getenv("CONTENT_TYPE"), params);
   tcfree(buf);
 }
 

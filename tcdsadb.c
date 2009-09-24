@@ -20,7 +20,7 @@
 
 #define DSADBCACHEOUT         64                /* number of pages in a process of cacheout  */
 
-#define DSDDBDEFARITY         10                /* default number of maxarity */
+#define DSDDBDEFARITY         20                /* default number of maxarity */
 
 /* Tuning param for Hash DB */
 #define DSADBDEFBNUM          32749             /* default bucket number */
@@ -756,10 +756,10 @@ static const DSADBNODE *tcdsadbsearchimpl(TCDSADB *dsadb, const DSADBCORD *kbuf,
 
     time_t t = time(NULL);
     DSADBPAGE *page = tcdsadbpageload(dsadb, dsadb->root_pid);
-	if (page == NULL) 
+	if (page == NULL)
 		return NULL;
     DSADBNODE *elem = tcdsadbnodeload(page, dsadb->root_offset);
-	if (elem == NULL) 
+	if (elem == NULL)
 		return NULL;
     return tcdsadbrangesearch(dsadb, elem, kbuf, ksiz, r, t);
 }
@@ -1634,7 +1634,7 @@ void *tcdsadbinsertsafe(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *
     /* Try to get directly from hash database */
 
     const char *rbuf = tcdsadbgetimpl(dsadb, kbuf, ksiz, sp);
-	    
+
     if (rbuf == NULL)
     {
         DSADBNODE *node = (DSADBNODE*) tcdsadbsearchimpl(dsadb, kbuf, ksiz, r, sp);

@@ -117,7 +117,7 @@ int main(int argc, char **argv){
     usage();
   }
   if(rv != 0){
-    printf("FAILED:");
+    printf("FAILED: TCRNDSEED=%u PID=%d", g_randseed, (int)getpid());
     for(int i = 0; i < argc; i++){
       printf(" %s", argv[i]);
     }
@@ -1039,7 +1039,11 @@ static void *threadwrite(void *targ){
     char vbuf[RECBUFSIZ*5];
     int vsiz = sprintf(vbuf, "%d", uid);
     tcmapput(cols, "str", 3, vbuf, vsiz);
-    vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    if(myrand(3) == 0){
+      vsiz = sprintf(vbuf, "%.2f", (myrand(i * 100) + 1) / 100.0);
+    } else {
+      vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    }
     tcmapput(cols, "num", 3, vbuf, vsiz);
     vsiz = sprintf(vbuf, "%d", myrand(32) + 1);
     tcmapput(cols, "type", 4, vbuf, vsiz);
@@ -1142,7 +1146,11 @@ static void *threadwicked(void *targ){
     char vbuf[RECBUFSIZ*5];
     int vsiz = sprintf(vbuf, "%d", id);
     tcmapput(cols, "str", 3, vbuf, vsiz);
-    vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    if(myrand(3) == 0){
+      vsiz = sprintf(vbuf, "%.2f", (myrand(i * 100) + 1) / 100.0);
+    } else {
+      vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+    }
     tcmapput(cols, "num", 3, vbuf, vsiz);
     vsiz = sprintf(vbuf, "%d", myrand(32) + 1);
     tcmapput(cols, "type", 4, vbuf, vsiz);
@@ -1365,7 +1373,11 @@ static void *threadwicked(void *targ){
           if(myrand(20) == 0) op |= TDBQCNOIDX;
           char expr[RECBUFSIZ*3];
           char *wp = expr;
-          wp += sprintf(expr, "%d", myrand(i));
+          if(myrand(3) == 0){
+            wp += sprintf(expr, "%f", myrand(i * 100) / 100.0);
+          } else {
+            wp += sprintf(expr, "%d", myrand(i));
+          }
           if(myrand(10) == 0) wp += sprintf(wp, ",%d", myrand(i));
           if(myrand(10) == 0) wp += sprintf(wp, ",%d", myrand(i));
           tctdbqryaddcond(qry, name, op, expr);
@@ -1452,7 +1464,11 @@ static void *threadtypical(void *targ){
       char vbuf[RECBUFSIZ*5];
       int vsiz = sprintf(vbuf, "%d", id);
       tcmapput(cols, "str", 3, vbuf, vsiz);
-      vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+      if(myrand(3) == 0){
+        vsiz = sprintf(vbuf, "%.2f", (myrand(i * 100) + 1) / 100.0);
+      } else {
+        vsiz = sprintf(vbuf, "%d", myrand(i) + 1);
+      }
       tcmapput(cols, "num", 3, vbuf, vsiz);
       vsiz = sprintf(vbuf, "%d", myrand(32) + 1);
       tcmapput(cols, "type", 4, vbuf, vsiz);

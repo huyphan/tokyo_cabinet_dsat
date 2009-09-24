@@ -27,11 +27,6 @@
 __TCADB_CLINKAGEBEGIN
 
 
-#include <stdlib.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <time.h>
-#include <math.h>
 #include <tcutil.h>
 #include <tchdb.h>
 #include <tcbdb.h>

@@ -27,12 +27,6 @@
 __TCBDB_CLINKAGEBEGIN
 
 
-#include <stdlib.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <time.h>
-#include <limits.h>
-#include <math.h>
 #include <tcutil.h>
 #include <tchdb.h>
 
@@ -159,7 +153,7 @@ int tcbdbecode(TCBDB *bdb);
    `bdb' specifies the B+ tree database object which is not opened.
    If successful, the return value is true, else, it is false.
    Note that the mutual exclusion control is needed if the object is shared by plural threads and
-   this function should should be called before the database is opened. */
+   this function should be called before the database is opened. */
 bool tcbdbsetmutex(TCBDB *bdb);
 
 

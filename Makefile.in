@@ -88,7 +88,7 @@ all : $(LIBRARYFILES) $(COMMANDFILES) $(CGIFILES)
 
 clean :
 	rm -rf $(LIBRARYFILES) $(LIBOBJFILES) $(COMMANDFILES) $(CGIFILES) \
-	  *.o a.out tokyocabinet_all.c check.in check.out gmon.out leak.log words.tsv \
+	  *.o a.out tokyocabinet_all.c check.in check.out gmon.out *.vlog words.tsv \
 	  casket casket-* casket.* *.tch *.tcb *.tcf *.tct *.idx.* *.wal *~ hoge moge tako ika
 
 
@@ -223,6 +223,8 @@ check-util :
 	$(RUNENV) $(RUNCMD) ./tcucodec ucs Makefile > check.in
 	$(RUNENV) $(RUNCMD) ./tcucodec ucs -d check.in > check.out
 	$(RUNENV) $(RUNCMD) ./tcucodec date -ds '1978-02-11T18:05:30+09:00' -rf > check.out
+	$(RUNENV) $(RUNCMD) ./tcucodec cipher -key "mikio" Makefile > check.in
+	$(RUNENV) $(RUNCMD) ./tcucodec cipher -key "mikio" check.in > check.out
 	$(RUNENV) $(RUNCMD) ./tcucodec tmpl -var name mikio -var nick micky \
 	  '@name=[%name%][%IF nick%] nick=[%nick%][%END%][%IF hoge%][%ELSE%].[%END%]' > check.out
 	$(RUNENV) $(RUNCMD) ./tcucodec conf > check.out
@@ -545,9 +547,10 @@ check-adb :
 
 
 check-valgrind :
-	make RUNCMD="valgrind --tool=memcheck --log-fd=1" check | tee leak.log
-	grep ERROR leak.log
-	grep 'at exit' leak.log
+	make RUNCMD="valgrind --tool=memcheck --log-file=%p.vlog" check
+	grep ERROR *.vlog | grep -v ' 0 errors' ; true
+	grep 'at exit' *.vlog | grep -v ' 0 bytes' ; true
+
 
 
 check-large :

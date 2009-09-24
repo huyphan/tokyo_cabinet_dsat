@@ -1076,6 +1076,7 @@ uint64_t tcfdbfsiz(TCFDB *fdb){
 /* Set the error code of a fixed-length database object. */
 void tcfdbsetecode(TCFDB *fdb, int ecode, const char *filename, int line, const char *func){
   assert(fdb && filename && line >= 1 && func);
+  int myerrno = errno;
   if(!fdb->fatal){
     fdb->ecode = ecode;
     if(fdb->mmtx) pthread_setspecific(*(pthread_key_t *)fdb->eckey, (void *)(intptr_t)ecode);
@@ -1087,8 +1088,9 @@ void tcfdbsetecode(TCFDB *fdb, int ecode, const char *filename, int line, const 
   if(fdb->dbgfd >= 0 && (fdb->dbgfd != UINT16_MAX || fdb->fatal)){
     int dbgfd = (fdb->dbgfd == UINT16_MAX) ? 1 : fdb->dbgfd;
     char obuf[FDBIOBUFSIZ];
-    int osiz = sprintf(obuf, "ERROR:%s:%d:%s:%s:%d:%s\n", filename, line, func,
-                       fdb->path ? fdb->path : "-", ecode, tcfdberrmsg(ecode));
+    int osiz = sprintf(obuf, "ERROR:%s:%d:%s:%s:%d:%s:%d:%s\n", filename, line, func,
+                       fdb->path ? fdb->path : "-", ecode, tcfdberrmsg(ecode),
+                       myerrno, strerror(myerrno));
     tcwrite(dbgfd, obuf, osiz);
   }
 }
@@ -2623,10 +2625,10 @@ static bool tcfdblockallrecords(TCFDB *fdb, bool wr){
   for(int i = 0; i < FDBRMTXNUM; i++){
     if(wr ? pthread_rwlock_wrlock((pthread_rwlock_t *)fdb->rmtxs + i) != 0 :
        pthread_rwlock_rdlock((pthread_rwlock_t *)fdb->rmtxs + i) != 0){
+      tcfdbsetecode(fdb, TCETHREAD, __FILE__, __LINE__, __func__);
       while(--i >= 0){
         pthread_rwlock_unlock((pthread_rwlock_t *)fdb->rmtxs + i);
       }
-      tcfdbsetecode(fdb, TCETHREAD, __FILE__, __LINE__, __func__);
       return false;
     }
   }

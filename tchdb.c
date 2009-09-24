@@ -1268,6 +1268,7 @@ uint64_t tchdbfsiz(TCHDB *hdb){
 /* Set the error code of a hash database object. */
 void tchdbsetecode(TCHDB *hdb, int ecode, const char *filename, int line, const char *func){
   assert(hdb && filename && line >= 1 && func);
+  int myerrno = errno;
   if(!hdb->fatal){
     if(hdb->mmtx){
       pthread_setspecific(*(pthread_key_t *)hdb->eckey, (void *)(intptr_t)ecode);
@@ -1282,8 +1283,9 @@ void tchdbsetecode(TCHDB *hdb, int ecode, const char *filename, int line, const 
   if(hdb->dbgfd >= 0 && (hdb->dbgfd != UINT16_MAX || hdb->fatal)){
     int dbgfd = (hdb->dbgfd == UINT16_MAX) ? 1 : hdb->dbgfd;
     char obuf[HDBIOBUFSIZ];
-    int osiz = sprintf(obuf, "ERROR:%s:%d:%s:%s:%d:%s\n", filename, line, func,
-                       hdb->path ? hdb->path : "-", ecode, tchdberrmsg(ecode));
+    int osiz = sprintf(obuf, "ERROR:%s:%d:%s:%s:%d:%s:%d:%s\n", filename, line, func,
+                       hdb->path ? hdb->path : "-", ecode, tchdberrmsg(ecode),
+                       myerrno, strerror(myerrno));
     tcwrite(dbgfd, obuf, osiz);
   }
 }
@@ -1851,7 +1853,7 @@ static uint64_t tcgetprime(uint64_t num){
 }
 
 
-/* Seek and read data from a file.
+/* Seek and write data into a file.
    `hdb' specifies the hash database object.
    `off' specifies the offset of the region to seek.
    `buf' specifies the buffer to store into.
@@ -2888,7 +2890,7 @@ static bool tchdbremoverec(TCHDB *hdb, TCHREC *rec, char *rbuf, uint64_t bidx, o
     child = rec->left;
   } else if(rec->left < 1 && rec->right > 0){
     child = rec->right;
-  } else if(rec->left < 1 && rec->left < 1){
+  } else if(rec->left < 1){
     child = 0;
   } else {
     child = rec->left;
@@ -3995,15 +3997,15 @@ static char *tchdbgetimpl(TCHDB *hdb, const char *kbuf, int ksiz, uint64_t bidx,
           *sp = zsiz;
           return zbuf;
         }
+        if(hdb->recc){
+          if(tcmdbrnum(hdb->recc) >= hdb->rcnum) tchdbcacheadjust(hdb);
+          tcmdbput4(hdb->recc, kbuf, ksiz, "=", 1, rec.vbuf, rec.vsiz);
+        }
         if(rec.bbuf){
           memmove(rec.bbuf, rec.vbuf, rec.vsiz);
           rec.bbuf[rec.vsiz] = '\0';
           *sp = rec.vsiz;
           return rec.bbuf;
-        }
-        if(hdb->recc){
-          if(tcmdbrnum(hdb->recc) >= hdb->rcnum) tchdbcacheadjust(hdb);
-          tcmdbput4(hdb->recc, kbuf, ksiz, "=", 1, rec.vbuf, rec.vsiz);
         }
         *sp = rec.vsiz;
         char *rv;
@@ -4896,10 +4898,10 @@ static bool tchdblockallrecords(TCHDB *hdb, bool wr){
   for(int i = 0; i <= UINT8_MAX; i++){
     if(wr ? pthread_rwlock_wrlock((pthread_rwlock_t *)hdb->rmtxs + i) != 0 :
        pthread_rwlock_rdlock((pthread_rwlock_t *)hdb->rmtxs + i) != 0){
+      tchdbsetecode(hdb, TCETHREAD, __FILE__, __LINE__, __func__);
       while(--i >= 0){
         pthread_rwlock_unlock((pthread_rwlock_t *)hdb->rmtxs + i);
       }
-      tchdbsetecode(hdb, TCETHREAD, __FILE__, __LINE__, __func__);
       return false;
     }
   }
