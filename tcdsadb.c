@@ -12,7 +12,7 @@
 #define DSADBPAGESIZE         (1LL<<14)         /* maximum size of disk page (1LL<<12) */
 #define DSADBMAXNODECOUNT     (1LL<<10)         /* maximum size of disk page */
 #define DSADBMAXNODECACHE     2048              /* maximum number or node to be cached */
-#define DSADBMAXPAGECACHE     2048             /* maximum number or page to be cached */
+#define DSADBMAXPAGECACHE     20000             /* maximum number or page to be cached */
 #define DSADBINVPAGEID       -1                 /* invalid page id */
 #define DSADBINVOFFSETID     -1                 /* invalid offset id */
 #define DSADBMAXDIST          (300LL*81)        /* specific to Image Mark case */
@@ -333,11 +333,11 @@ static void tcdsadbloadmeta(TCDSADB *dsadb){
   rp += sizeof(lnum);
 
   memcpy(&lnum, rp, sizeof(lnum));
-  dsadb->ncnum = TCITOHL(lnum);
+//  dsadb->ncnum = TCITOHL(lnum);
   rp += sizeof(lnum);
 
   memcpy(&lnum, rp, sizeof(lnum));
-  dsadb->pcnum = TCITOHL(lnum);
+//  dsadb->pcnum = TCITOHL(lnum);
   rp += sizeof(lnum);
 
   memcpy(&llnum, rp, sizeof(llnum));
@@ -473,6 +473,8 @@ static DSADBNODE *tcdsadbnodenew(TCDSADB *dsadb,DSADBCORD* point) {
     assert(dsadb);
     DSADBNODE *node;
     TCMALLOC(node,sizeof(DSADBNODE));
+    memset(node,0,sizeof(DSADBNODE));
+
     node->radius = 0;
     node->child.offset = DSADBINVOFFSETID;
     node->child.pid = DSADBINVPAGEID;
@@ -557,6 +559,7 @@ static DSADBPAGE *tcdsadbpageload(TCDSADB *dsadb, uint64_t id) {
     uint64_t pid = id;
     // Get the page from cache if exists :
     DSADBPAGE *p = (DSADBPAGE *) tcmapget(dsadb->pagec, &pid, sizeof(pid), &rsiz);
+
     if (p)
     {
         TCDODEBUG(dsadb->cnt_cachehit++);
@@ -755,9 +758,13 @@ static const DSADBNODE *tcdsadbsearchimpl(TCDSADB *dsadb, const DSADBCORD *kbuf,
     assert(dsadb && kbuf && ksiz >= 0 && sp);
 
     time_t t = time(NULL);
+    if (dsadb->root_pid == DSADBINVPAGEID)
+        return NULL;
+
     DSADBPAGE *page = tcdsadbpageload(dsadb, dsadb->root_pid);
 	if (page == NULL)
 		return NULL;
+
     DSADBNODE *elem = tcdsadbnodeload(page, dsadb->root_offset);
 	if (elem == NULL)
 		return NULL;
@@ -787,8 +794,7 @@ static int tcdsadbinsertnode(DSADBPAGE *page,DSADBNODE *node)
  If successful, the return value is true, else, it is false. */
 static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
         const void *vbuf, int vsiz, int dmode) {
-
-    assert(dsadb && kbuf && ksiz >= 0);
+	assert(dsadb && kbuf && ksiz >= 0);
     int64_t pid = dsadb->root_pid;
     int64_t root_offset = dsadb->root_offset;
 
@@ -813,19 +819,21 @@ static bool tcdsadbputimpl(TCDSADB *dsadb, const void *kbuf, int ksiz,
     /* If the tree is empty */
     if (dsadb->root_pid == DSADBINVPAGEID) {
         DSADBPAGE *page = tcdsadbpagenew(dsadb);
+
         int idx = tcdsadbinsertnode(page,node);
         TCFREE(node);
-        tcdsadbpagesave(dsadb, page);
 
         /* This node is the root */
         dsadb->root_pid = page->id;
 		page->depth = 1;
+        page->node_count=1;
         dsadb->root_offset = idx;
+
+        tcdsadbpagesave(dsadb, page);
     }
     else
     {
         /* Get the root node */
-
         DSADBPAGE *page = tcdsadbpageload(dsadb, pid);
         DSADBPAGE *parent_page = NULL;
         DSADBNODE *elem = tcdsadbnodeload(page, root_offset);
@@ -1371,7 +1379,6 @@ static void tcdsadbclear(TCDSADB *dsadb) {
     dsadb->nnode = 0;
     dsadb->ncnum = DSADBDEFNCNUM;
     dsadb->pcnum = DSADBDEFPCNUM;
-    dsadb->arity = DSDDBDEFARITY;
 
     TCDODEBUG(dsadb->cnt_cachehit=0);
     TCDODEBUG(dsadb->cnt_cachemiss=0);
@@ -1451,6 +1458,7 @@ TCDSADB *tcdsadbnew(void) {
     dsadb->npage = 0;
     dsadb->depth = 0;
     dsadb->maxnodeperpage = (DSADBPAGESIZE - sizeof(DSADBPAGE))/sizeof(DSADBNODE) - 1;
+    dsadb->arity = tclmin(DSDDBDEFARITY, dsadb->maxnodeperpage/2-1);
     tchdbsetxmsiz(dsadb->hdb, 0);
     return dsadb;
 }
@@ -1633,11 +1641,12 @@ void *tcdsadbinsertsafe(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *
 
     /* Try to get directly from hash database */
 
-    const char *rbuf = tcdsadbgetimpl(dsadb, kbuf, ksiz, sp);
+    char *rbuf = tcdsadbgetimpl(dsadb, kbuf, ksiz, sp);
 
     if (rbuf == NULL)
     {
         DSADBNODE *node = (DSADBNODE*) tcdsadbsearchimpl(dsadb, kbuf, ksiz, r, sp);
+
         if (node != NULL)
         {
             rbuf = tcdsadbgetimpl(dsadb, node->point, DSADBDEFDIMENSION*sizeof(DSADBCORD), sp);
@@ -1648,6 +1657,7 @@ void *tcdsadbinsertsafe(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *
 
     if (rbuf) {
         TCMEMDUP(rv, rbuf, *sp);
+        free(rbuf);
     } else {
         /* Try to insert */
         tcdsadbputimpl(dsadb, kbuf, ksiz, vbuf, vsiz, DSADBPDOVER);
@@ -1666,6 +1676,20 @@ void *tcdsadbinsertsafe(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *
     return rv;
 }
 
+/* Get the number of records of a DSA tree database object. */
+uint64_t tcdsadbrnum(TCDSADB *dsadb){
+  assert(dsadb);
+  if(!DSADBLOCKMETHOD(dsadb, false)) return 0;
+  if(!dsadb->open){
+    tcdsadbsetecode(dsadb, TCEINVALID, __FILE__, __LINE__, __func__);
+    DSADBUNLOCKMETHOD(dsadb);
+    return 0;
+  }
+  uint64_t rv = dsadb->nnode;
+  DSADBUNLOCKMETHOD(dsadb);
+  return rv;
+}
+
 /* Close a DSA tree database object. */
 bool tcdsadbclose(TCDSADB *dsadb) {
     assert(dsadb);
@@ -1679,7 +1703,6 @@ bool tcdsadbclose(TCDSADB *dsadb) {
     }
 
     bool rv = tcdsadbcloseimpl(dsadb);
-    tcdsadbprintmeta(dsadb);
     DSADBUNLOCKMETHOD(dsadb);
     return rv;
 }
@@ -1698,15 +1721,15 @@ void tcdsadbprintmeta(TCDSADB *dsadb){
 
   char buf[DSADBPAGEBUFSIZ];
   char *wp = buf;
-  wp += sprintf(wp, "META:");
-  wp += sprintf(wp, " nodecount=%lld", dsadb->nnode) ;
-  wp += sprintf(wp, " pagecount=%lld", dsadb->npage) ;
-  wp += sprintf(wp, " page cache count=%d", dsadb->pcnum) ;
-  wp += sprintf(wp, " cnt_cachehit=%lld", (long long) dsadb->cnt_cachehit) ;
-  wp += sprintf(wp, " cnt_cachemiss=%lld",(long long) dsadb->cnt_cachemiss) ;
-  wp += sprintf(wp, " cnt_adjpagec=%lld", (long long) dsadb->cnt_adjpagec) ;
-  wp += sprintf(wp, " cnt_savepage=%lld", (long long) dsadb->cnt_savepage) ;
-  *(wp++) = '\n';
+  wp += sprintf(wp, "PARAMETERS FOR DSAT :\n");
+  wp += sprintf(wp, " Number of page to be cached : %d\n", dsadb->pcnum) ;
+  wp += sprintf(wp, " Page size : %llu\n", DSADBPAGESIZE) ;
+  wp += sprintf(wp, " Arity : %u\n", dsadb->arity) ;
+  wp += sprintf(wp, " Maximum nodes per page : %lld\n", dsadb->maxnodeperpage) ;
+//  wp += sprintf(wp, " cnt_cachehit=%lld", (long long) dsadb->cnt_cachehit) ;
+//  wp += sprintf(wp, " cnt_cachemiss=%lld",(long long) dsadb->cnt_cachemiss) ;
+//  wp += sprintf(wp, " cnt_adjpagec=%lld", (long long) dsadb->cnt_adjpagec) ;
+//  wp += sprintf(wp, " cnt_savepage=%lld", (long long) dsadb->cnt_savepage) ;
   *(wp++) = '\0';
   printf("%s",buf);
 }

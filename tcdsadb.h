@@ -130,6 +130,9 @@ void *tcdsadbsearch2(TCDSADB *dsadb, const char *kbuf, int64_t r);
 
 void *tcdsadbinsertsafe(TCDSADB *dsadb, const void *kbuf, int ksiz, const void *vbuf, int vsiz, uint32_t r, int *sp);
 
+/* Get the number of records of a DSA tree database object. */
+uint64_t tcdsadbrnum(TCDSADB *dsadb);
+
 /* Close a DSA tree database object. */
 bool tcdsadbclose(TCDSADB *dsadb);
 

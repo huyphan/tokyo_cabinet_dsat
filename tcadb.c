@@ -1550,6 +1550,10 @@ uint64_t tcadbrnum(TCADB *adb){
       rv = 0;
     }
     break;
+  case ADBODSADB:
+    rv = tcdsadbrnum(adb->dsadb);
+    break;
+
   default:
     rv = 0;
     break;
