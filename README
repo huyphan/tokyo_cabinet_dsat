@@ -30,6 +30,8 @@ Public License.  See the file `COPYING' for details.
 Tokyo Cabinet was written by Mikio Hirabayashi.  You can contact the
 author by e-mail to `mikio@users.sourceforge.net'.
 
+DSAT implementation for nearest neighbors searching was written by 
+Huy Phan <dachuy@gmail.com>
 
 Thanks.
 
